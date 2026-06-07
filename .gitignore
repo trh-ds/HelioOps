@@ -20,3 +20,9 @@ Thumbs.db
 .sentry/
 node_modules/
 .next/
+Documents/
+ROADMAP.md
+API_CONTRACTS.md
+DATA_MODELS.md
+TECH_STACK.md
+ENV.md
