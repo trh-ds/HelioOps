@@ -26,3 +26,16 @@ API_CONTRACTS.md
 DATA_MODELS.md
 TECH_STACK.md
 ENV.md
+# ChromaDB
+chroma_db/
+**/chroma_db/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+env/

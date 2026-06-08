@@ -3,3 +3,6 @@ openai
 tiktoken
 pypdf
 python-dotenv
+sentence-transformers
+redis
+fakeredis
