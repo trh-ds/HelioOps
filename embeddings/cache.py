@@ -12,6 +12,30 @@ _TTL = 86400
 _PREFIX = "emb:"
 
 
+def get_redis_client() -> Any:
+    """Return a real Redis client if a server is reachable, otherwise fakeredis."""
+    try:
+        client = redis_lib.Redis(socket_connect_timeout=1, socket_timeout=1)
+        client.ping()
+        return client
+    except Exception:
+        try:
+            import fakeredis
+            print("[cache] Redis unavailable - using in-memory fakeredis")
+            return fakeredis.FakeRedis()
+        except ImportError:
+            raise RuntimeError(
+                "Redis is not running and fakeredis is not installed. "
+                "Run: pip install fakeredis  or start a Redis server."
+            )
+
+
+def _build_metadata(chunk: dict) -> dict:
+    meta = {"source": chunk["source"], "token_count": chunk["token_count"]}
+    meta.update(chunk.get("metadata") or {})
+    return meta
+
+
 class CachedEmbedder:
     def __init__(
         self,
@@ -41,7 +65,7 @@ def embed_and_upsert(
     from embeddings.collections import get_or_create_collection
 
     if embedder is None:
-        embedder = CachedEmbedder()
+        embedder = CachedEmbedder(redis_client=get_redis_client())
 
     texts = [c["text"] for c in chunks]
     keys = [embedder._key(t) for t in texts]
@@ -70,6 +94,6 @@ def embed_and_upsert(
         ids=[c["id"] for c in chunks],
         embeddings=embeddings,
         documents=texts,
-        metadatas=[{"source": c["source"], "token_count": c["token_count"]} for c in chunks],
+        metadatas=[_build_metadata(c) for c in chunks],
     )
     print(f"upserted {len(chunks)} chunks -> '{collection_name}'")
