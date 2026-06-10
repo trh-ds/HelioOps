@@ -1,6 +1,8 @@
-# HelioOps GenAI Layer
+# HelioOps GenAI Layer (Layer III — Verified Advisory)
 
-LangGraph + Groq (Llama 3.3 70B) advisory generation pipeline. Takes a structured `StormEvent` from the NOAA detection pipeline and produces parallel, RAG-grounded, hallucination-resistant advisories for up to four industries simultaneously.
+AgentScope + Groq (Llama 3.3 70B) advisory generation pipeline. Takes a structured `StormEvent` from the NOAA detection pipeline and produces parallel, RAG-grounded, hallucination-resistant advisories for up to four industries simultaneously.
+
+**Owner:** Priyanshu | **Downstream consumer:** Tirth (Layer IV — Delivery)
 
 ---
 
@@ -11,10 +13,10 @@ NOAA Alert (StormEvent)
         │
         ▼
 ┌───────────────────┐
-│  classify_route   │  ← Deterministic G-scale → severity matrix (no LLM)
-│  (LangGraph node) │    Identifies which industries are triggered
+│  route_storm()    │  ← Deterministic G-scale → severity matrix (no LLM)
+│  impact_router.py │    Identifies triggered industries + severity tier
 └────────┬──────────┘
-         │  LangGraph Send() — parallel dispatch
+         │  asyncio.create_task() — parallel fan-out
     ┌────┴─────────────────────────────────┐
     │           │           │              │
     ▼           ▼           ▼              ▼
@@ -22,52 +24,90 @@ NOAA Alert (StormEvent)
  Agent        Agent     Agent          Agent
     │           │           │              │
     └────┬─────────────────────────────────┘
-         │  operator.add reducer — fan-in
+         │  asyncio.gather — fan-in + event drain
          ▼
 ┌──────────────────────┐
-│  compile_advisories  │  ← Aggregate all results, emit pipeline.complete
+│  Collect advisories  │  ← Aggregate AdvisoryOutput list
 └──────────┬───────────┘
            │
            ▼
-   List[AdvisoryOutput]  →  Backend DB + WebSocket + Notifications
+┌──────────────────────┐
+│  verify_advisory()   │  ← Deterministic rule engine (zero LLM calls)
+│  verifier.py         │    ICAO HF bands, reroute lat, NERC GIC, GMDSS
+└──────────┬───────────┘
+           │
+           ▼
+  (VerifiedAdvisory, ProvenanceTrace)  →  Layer IV (Tirth)
 ```
 
-### Per-Agent Pipeline (inside each `run_agent` node)
+### Per-Agent Pipeline (inside each `IndustryAgentBase.run_async()`)
 
 ```
 1. Build KB query from storm parameters (G-scale, Kp, S-scale, R-scale)
-2. Parallel ChromaDB retrieval:
+2. Parallel ChromaDB retrieval via asyncio.to_thread:
    ├── Industry KB  (e.g. aviation_kb)   — top 8 chunks
    └── Impact Matrix KB                  — top 4 chunks
 3. Format context (labelled blocks with chunk_id + source + similarity)
-4. Generate advisory (Groq Llama 3.3 70B, temperature=0, JSON mode)
+4. Generate advisory (Groq Llama 3.3 70B, temperature=0.1, JSON mode)
 5. Validate schema (Pydantic — fails fast on missing source_ref)
 6. Check severity consistency (LLM cannot go below deterministic matrix)
 7. LLM self-check (separate Groq call — judges if claims are grounded)
 8. Compute confidence score (multi-factor)
 9. Apply safety flags (non-blocking audit markers)
-10. Retry loop (up to 3 attempts with error feedback injected)
+10. Retry loop (up to 3 attempts with error feedback injected into prompt)
 11. Safe fallback (ESCALATE_TO_SPECIALIST if all retries fail)
+```
+
+---
+
+## File Structure
+
+```
+genai/
+├── __init__.py                Public API: run_pipeline(), stream_pipeline()
+├── models.py                  All Pydantic models: StormEvent, AdvisoryOutput, ActionItem, etc.
+├── config.py                  All configuration knobs (LLM, RAG, retry thresholds)
+├── impact_router.py           Deterministic G-scale → industry severity matrix
+├── retriever.py               ChromaDB query wrapper (BGE-small embed_query, cosine filter, context formatter)
+├── guardrails.py              Schema validation, severity check, LLM self-check, confidence scoring
+├── contracts.py               Layer III→IV data contracts (§7.2–7.4 of imp.md)
+├── verifier.py                Deterministic rule engine: ICAO HF, reroute lat, NERC GIC, GMDSS
+├── orchestrator.py            AgentScope parallel pipeline — replaces graph.py
+├── graph_langgraph_legacy.py  Archived LangGraph version (dead code, kept for reference)
+├── agents/
+│   ├── __init__.py
+│   ├── base.py                IndustryAgentBase — full RAG+LLM+guardrails pipeline
+│   ├── aviation.py            AviationAgent — AVIATION_SYSTEM_PROMPT + KB query
+│   ├── grid.py                GridAgent — GRID_SYSTEM_PROMPT + KB query
+│   ├── maritime.py            MaritimeAgent — MARITIME_SYSTEM_PROMPT + KB query
+│   └── telecom.py             TelecomAgent — TELECOM_SYSTEM_PROMPT + KB query
+└── prompts/
+    ├── __init__.py
+    ├── base.py                Shared: JSON output schema, format_advisory_prompt()
+    ├── aviation.py            Aviation system prompt + KB query template
+    ├── grid.py                Grid system prompt + KB query template
+    ├── maritime.py            Maritime system prompt + KB query template
+    └── telecom.py             Telecom system prompt + KB query template
 ```
 
 ---
 
 ## Anti-Hallucination Techniques
 
-This is the core design constraint. Ten independent techniques work in layers:
+Ten independent techniques in layers:
 
 | # | Technique | Where | Effect |
 |---|-----------|-------|--------|
-| 1 | **RAG-Only Grounding** | System prompt | LLM is explicitly forbidden from using training knowledge; must use ONLY provided context |
-| 2 | **Citation Enforcement** | System prompt + Pydantic | Every `action_item` must have `source_ref` citing an exact document name or regulation code. Missing `source_ref` = validation failure = retry |
-| 3 | **Retrieval Quality Gate** | `retriever.py` | Chunks below 0.35 cosine similarity are silently dropped before the LLM ever sees them |
-| 4 | **JSON Schema Enforcement** | `guardrails.py` + Groq JSON mode | Groq forces valid JSON output; Pydantic validates field types, required fields, and value constraints |
-| 5 | **Deterministic Severity Override** | `guardrails.py` | If LLM severity < deterministic matrix minimum, `SEVERITY_MISMATCH` flag is added (advisory not blocked — human reviewer is alerted) |
-| 6 | **Source Existence Check** | `guardrails.py` | `sources_cited` list is cross-checked against the set of retrieved chunk sources. Unknown sources → `CITATION_GAP` flag |
-| 7 | **LLM Self-Check** | `guardrails.py` | A second Groq call audits the generated advisory against the context, looking for specific numeric values / regulation codes not present in the context |
-| 8 | **Retry with Error Injection** | `graph.py` | On any validation failure, the specific error messages are injected into the next prompt: "FIX THESE: ..." — the LLM sees its own mistake |
-| 9 | **Confidence Score** | `guardrails.py` | Multi-factor score: base=avg retrieval similarity, bonus per cited source, penalty per missing citation, bonus for high-coverage context. Score exposed to reviewers |
-| 10 | **Conservative Fallback** | `graph.py` | If all 3 retries fail, a `GENERATION_FAILED` advisory is emitted with a single action: "ESCALATE TO SPECIALIST". Never silently fails. |
+| 1 | **RAG-Only Grounding** | System prompt | LLM forbidden from using training knowledge; must cite ONLY provided context |
+| 2 | **Citation Enforcement** | System prompt + Pydantic | Every `action_item` must have `source_ref`. Missing = validation fail = retry |
+| 3 | **Retrieval Quality Gate** | `retriever.py` | Chunks below 0.35 cosine similarity dropped before LLM sees them |
+| 4 | **JSON Schema Enforcement** | `guardrails.py` + Groq JSON mode | Groq forces valid JSON; Pydantic validates field types, required fields, value constraints |
+| 5 | **Deterministic Severity Override** | `guardrails.py` | LLM severity < deterministic matrix minimum → `SEVERITY_MISMATCH` flag (advisory not blocked; human alerted) |
+| 6 | **Source Existence Check** | `guardrails.py` | `sources_cited` cross-checked against retrieved chunk sources. Unknown source → `CITATION_GAP` flag |
+| 7 | **LLM Self-Check** | `guardrails.py` | Second Groq call audits advisory against context for specific numeric values / regulation codes |
+| 8 | **Retry with Error Injection** | `agents/base.py` | Validation errors injected into next prompt: "FIX THESE: ..." — LLM sees its own mistake |
+| 9 | **Confidence Score** | `guardrails.py` | Multi-factor score exposed to reviewers (see formula below) |
+| 10 | **Conservative Fallback** | `agents/base.py` | All 3 retries fail → `GENERATION_FAILED` advisory with single action: "ESCALATE TO SPECIALIST" |
 
 ### Confidence Score Formula
 
@@ -84,24 +124,74 @@ Advisories with `confidence_score < 0.50` receive the `LOW_CONFIDENCE` safety fl
 
 ---
 
-## File Structure
+## Deterministic Verifier (verifier.py)
 
+Zero LLM calls. Runs after all agents complete. Rule checks per industry:
+
+| Rule | Industry | Valid Set | Detection |
+|------|----------|-----------|-----------|
+| HF frequency | aviation, maritime | `{3, 5, 8, 11, 17}` MHz (ICAO NAT) | regex `(\d+)\s*MHz` |
+| Reroute latitude | aviation | G3→78°N, G4→70°N, G5→60°N | regex `(\d+)\s*°?\s*N` |
+| GIC operating step | grid | NERC TPL-007-4 Appendix B steps | keyword match |
+| GMDSS channel | maritime | Valid GMDSS distress/working channels | keyword match |
+
+**WOW #2 demo**: LLM writes `"21 MHz"` → regex catches it → `21 ∉ {3,5,8,11,17}` → `status="blocked"`, `corrected_to=5` (ICAO G4+ default backup) → action text corrected in-place → logged + streamed as WebSocket event.
+
+```python
+from genai.verifier import verify_advisory
+
+verified, trace = verify_advisory(advisory, storm.model_dump(mode="json"), impact_assessment)
+# verified.verifier.status == "passed_with_corrections"
+# verified.verifier.checks[0].field == "hf_band"
+# verified.verifier.checks[0].proposed == 21
+# verified.verifier.checks[0].corrected_to == 5
 ```
-genai/
-├── __init__.py            Public API: run_pipeline(), stream_pipeline()
-├── models.py              All Pydantic models: StormEvent, AdvisoryOutput, ActionItem, etc.
-├── config.py              All configuration knobs (LLM, RAG, retry thresholds)
-├── impact_router.py       Deterministic G-scale → industry severity matrix
-├── retriever.py           ChromaDB query wrapper with similarity filtering + context formatter
-├── guardrails.py          Schema validation, severity check, LLM self-check, confidence scoring
-├── graph.py               LangGraph StateGraph — nodes, edges, parallel dispatch, public API
-└── prompts/
-    ├── __init__.py
-    ├── base.py            Shared: JSON output schema, format_advisory_prompt()
-    ├── aviation.py        Aviation system prompt + KB query template
-    ├── grid.py            Grid system prompt + KB query template
-    ├── maritime.py        Maritime system prompt + KB query template
-    └── telecom.py         Telecom system prompt + KB query template
+
+---
+
+## Layer III → IV Contracts (contracts.py)
+
+Matches imp.md §7.2–7.4. Tirth's Layer IV stores and dispatches `VerifiedAdvisory`.
+
+### §7.2 ImpactAssessment (Neal produces, Priyanshu consumes)
+```python
+class ImpactMetric(BaseModel):
+    domain: str          # gps_pnt, hf_radio, grid_gic
+    metric: str          # l1_position_error_m, blackout_probability, gic_risk_index
+    value: float
+    ci_low, ci_high, ci_level: Optional[float]
+    qualifier: Optional[str]
+
+class ImpactAssessment(BaseModel):
+    storm_id: str
+    model_version: str
+    low_confidence: bool
+    source: str          # "model" or "severity_floor"
+    impacts: list[ImpactMetric]
+```
+
+### §7.3 VerifiedAdvisory (Priyanshu produces, Tirth consumes)
+```python
+class VerifiedAdvisory(BaseModel):
+    advisory_id: str
+    storm_id: str
+    industry: str                  # aviation, grid, maritime, telecom
+    severity: str                  # critical, high, medium, low
+    numbered_actions: list[str]    # plain-text, verifier-corrected action strings
+    timing_window: dict            # {"opens": ISO8601, "duration_min": int}
+    technical_details: str
+    cited_procedure: dict          # {"source": str, "ref": str}
+    verifier: VerifierResult
+    provenance_ref: str            # trace_id linking to ProvenanceTrace
+    requires_human: bool
+```
+
+### §7.4 ProvenanceTrace (Priyanshu produces, Tirth renders)
+```python
+class ProvenanceTrace(BaseModel):
+    trace_id: str
+    advisory_id: str
+    chain: list[ProvenanceStep]    # 6 steps: raw_data → detection → impact → retrieval → verifier → output
 ```
 
 ---
@@ -112,29 +202,25 @@ genai/
 
 ```bash
 pip install -r requirements-genai.txt
-pip install -r requirements-data.txt  # ChromaDB, sentence-transformers
+pip install -r requirements-data.txt  # ChromaDB, sentence-transformers, pdfplumber
 ```
 
 ### 2. Environment variables
 
-Add to `backend/.env` (or export directly):
-
 ```env
 GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=llama-3.3-70b-versatile       # default
-GROQ_CHECKER_MODEL=llama-3.3-70b-versatile  # model used for self-check
+GROQ_CHECKER_MODEL=llama-3.3-70b-versatile
 ```
 
 ### 3. Verify ChromaDB has data
 
-The RAG layer requires populated ChromaDB collections. If not already done:
-
 ```bash
-# From project root
 python -m embeddings.ingest_aviation
 python -m embeddings.ingest_grid
 python -m embeddings.ingest_maritime
 python -m embeddings.ingest_impact_matrix
+# telecom_kb intentionally empty — telecom agent produces LOW_COVERAGE advisory
 ```
 
 ---
@@ -153,17 +239,12 @@ storm = StormEvent(
     kp_index=8.3,
     s_scale="S2",
     r_scale="R3",
-    estimated_arrival_utc=datetime(2024, 5, 10, 18, 0, 0, tzinfo=timezone.utc),
-    peak_impact_window_start=datetime(2024, 5, 10, 20, 0, 0, tzinfo=timezone.utc),
-    peak_impact_window_end=datetime(2024, 5, 11, 4, 0, 0, tzinfo=timezone.utc),
     raw_alert_text="NOAA/SWPC Geomagnetic Storm Watch: G4 conditions observed...",
 )
 
 async def handle_storm(storm):
     async for event in stream_pipeline(storm):
-        # Forward to WebSocket clients
-        event_type = event.get("event", "agent.thinking")
-        await ws_manager.broadcast_all(make_ws_event(event_type, event))
+        await ws_manager.broadcast_all(make_ws_event(event["event"], event))
 ```
 
 ### Batch / Replay
@@ -177,55 +258,18 @@ for advisory in advisories:
     print(f"{advisory.industry.value}: {advisory.severity.value} "
           f"(confidence={advisory.confidence_score:.2f}, "
           f"flags={[f.value for f in advisory.safety_flags]})")
-    for item in advisory.action_items:
-        print(f"  {item.step}. [{item.source_ref}] {item.action}")
 ```
 
----
-
-## Backend Integration Points
-
-### Wiring into `backend/app.py`
-
-The backend's replay endpoint already emits `storm.detected` WebSocket events.
-To wire the genai pipeline:
+### Verifier integration
 
 ```python
-# In the replay endpoint (or storm detection scheduler):
-import asyncio
-from genai import stream_pipeline, StormEvent
+from genai.verifier import verify_advisory, verifier_stream_events
 
-async def process_and_stream(storm: StormEvent, storm_db_id: str):
-    async for event in stream_pipeline(storm):
-        event_type = event.get("event", "agent.thinking")
+verified, trace = verify_advisory(advisory, storm_dict, impact_assessment_dict)
 
-        if event_type == "advisory.generated":
-            # Persist to DB
-            advisory_data = event["data"]
-            async with state.db.acquire() as conn:
-                await conn.execute(
-                    """INSERT INTO advisories
-                       (id, storm_event_id, industry, severity, status, confidence, advisory_json)
-                       VALUES ($1,$2,$3,$4,'pending_review',$5,$6)""",
-                    advisory_data["advisory_id"],
-                    storm_db_id,
-                    advisory_data["industry"],
-                    advisory_data["severity"],
-                    advisory_data["confidence_score"],
-                    json.dumps(advisory_data),
-                )
-            # Create CRM ticket
-            await create_crm_ticket(
-                state.db,
-                advisory_data["advisory_id"],
-                advisory_data["industry"],
-                advisory_data["severity"],
-                storm.g_scale.value[1],  # numeric part of "G4"
-                [a["action"] for a in advisory_data["action_items"]],
-            )
-
-        # Always broadcast to WebSocket clients
-        await ws_manager.broadcast_all(make_ws_event(event_type, event))
+# Stream verifier events to WebSocket
+for event in verifier_stream_events(verified.verifier.checks, advisory.industry.value):
+    await ws_manager.broadcast_all(event)
 ```
 
 ---
@@ -236,15 +280,16 @@ Events emitted by `stream_pipeline` in chronological order:
 
 | Event | When | Key Fields |
 |-------|------|------------|
-| `agent.thinking` (step: `routing_complete`) | After classify_route | `message`, `timestamp` |
-| `agent.thinking` (step: `rag_start`) | Before ChromaDB query | `industry` |
-| `agent.thinking` (step: `rag_done`) | After ChromaDB query | `industry`, chunk counts, avg similarity |
-| `agent.thinking` (step: `gen_attempt_N`) | Before each LLM call | `industry` |
-| `agent.thinking` (step: `self_check`) | Before hallucination check | `industry` |
-| `agent.thinking` (step: `advisory_ready`) | After successful generation | `industry`, `severity`, `confidence`, `flags` |
-| `advisory.ready` | Embedded in above | `advisory_id`, `industry`, `severity`, `confidence`, `flags` |
-| `advisory.generated` | After any advisory (pass or fallback) | `data` = full AdvisoryOutput dict |
-| `pipeline.complete` | After all agents complete | `total_advisories`, `industries` |
+| `agent.thinking` (`routing_complete`) | After route_storm() | `message`, triggered industries |
+| `agent.thinking` (`rag_start`) | Before ChromaDB query | `industry` |
+| `agent.thinking` (`rag_done`) | After ChromaDB query | `industry`, chunk counts, avg similarity |
+| `agent.thinking` (`gen_attempt_N`) | Before each LLM call | `industry` |
+| `agent.thinking` (`self_check`) | Before hallucination check | `industry` |
+| `agent.thinking` (`advisory_ready`) | After successful generation | `industry`, `severity`, `confidence`, `flags` |
+| `advisory.generated` | Per advisory | `data` = full AdvisoryOutput dict |
+| `pipeline.complete` | All agents done | `total_advisories`, `industries` |
+| `verifier.check` (blocked) | Per blocked rule | `field`, `proposed`, `corrected_to` — red-glow in UI |
+| `verifier.check` (pass) | Per passing rule | `field`, `proposed` |
 
 ---
 
@@ -257,17 +302,17 @@ Events emitted by `stream_pipeline` in chronological order:
   "industry":                "aviation",
   "severity":                "CRITICAL",
   "confidence_score":        0.72,
-  "summary":                 "G4 storm (Kp=8.3) requires immediate HF frequency ...",
+  "summary":                 "G4 storm (Kp=8.3) requires immediate HF frequency switch...",
   "action_items": [
     {
       "step":        1,
       "action":      "Switch all NAT tracks above 70°N to SATCOM backup immediately.",
       "rationale":   "HF blackout expected on polar routes during G4 conditions.",
       "source_ref":  "nat_doc_007_2025.pdf",
-      "time_window": "T+0 immediately"
+      "time_window": "IMMEDIATE"
     }
   ],
-  "estimated_impact_window": "2024-05-10T20:00Z to 2024-05-11T04:00Z",
+  "estimated_impact_window": "12-24 hours",
   "sources_cited":           ["nat_doc_007_2025.pdf", "noaa_space_weather_scales.txt"],
   "validation_passed":       true,
   "generated_at":            "2024-05-10T17:58:22Z",
@@ -277,15 +322,15 @@ Events emitted by `stream_pipeline` in chronological order:
 }
 ```
 
-### Safety Flags Reference
+### Safety Flags
 
-| Flag | Meaning | Action |
-|------|---------|--------|
+| Flag | Meaning | Required Action |
+|------|---------|-----------------|
 | `SEVERITY_MISMATCH` | LLM under-reported severity vs deterministic matrix | Human reviewer must verify severity |
 | `HALLUCINATION_DETECTED` | Self-check found unsupported claims | Review action items carefully |
 | `LOW_COVERAGE` | Fewer than 3 chunks above similarity threshold | KB may lack relevant content |
 | `LOW_CONFIDENCE` | `confidence_score < 0.50` | Treat advisory as preliminary |
-| `CITATION_GAP` | Some `source_ref` values not in retrieved chunks | Citations may be fabricated |
+| `CITATION_GAP` | `source_ref` values not in retrieved chunks | Citations may be fabricated |
 | `GENERATION_FAILED` | All 3 retries exhausted | Manual specialist consultation required |
 
 ---
@@ -296,34 +341,37 @@ All tunable values in `genai/config.py`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Primary LLM for advisory generation |
-| `GROQ_CHECKER_MODEL` | same as GROQ_MODEL | LLM for self-check (can use a lighter model) |
-| `GROQ_TEMPERATURE` | `0.0` | Deterministic output for reproducibility |
-| `GROQ_MAX_TOKENS` | `2048` | Max tokens per advisory generation call |
-| `RAG_TOP_K` | `8` | Chunks retrieved from industry KB per query |
-| `RAG_IMPACT_MATRIX_TOP_K` | `4` | Chunks retrieved from impact_matrix_kb |
-| `RAG_MIN_SIMILARITY` | `0.35` | Cosine similarity threshold — chunks below are discarded |
-| `RAG_LOW_COVERAGE_THRESHOLD` | `3` | Fewer valid chunks → LOW_COVERAGE flag |
-| `MAX_RETRY_ATTEMPTS` | `3` | LLM generation retries before safe fallback |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Primary LLM |
+| `GROQ_TEMPERATURE` | `0.1` | Low temp for reproducibility; >0 required for Groq JSON mode |
+| `GROQ_MAX_TOKENS` | `2048` | Max tokens per generation call |
+| `RAG_TOP_K` | `8` | Chunks from industry KB |
+| `RAG_IMPACT_MATRIX_TOP_K` | `4` | Chunks from impact_matrix_kb |
+| `RAG_MIN_SIMILARITY` | `0.35` | Cosine similarity threshold — chunks below discarded |
+| `RAG_LOW_COVERAGE_THRESHOLD` | `3` | Fewer valid chunks → `LOW_COVERAGE` flag |
+| `MAX_RETRY_ATTEMPTS` | `3` | LLM retries before safe fallback |
 | `SELF_CHECK_ENABLED` | `True` | Toggle LLM hallucination self-check |
-| `SELF_CHECK_MAX_CHUNKS` | `5` | Max context chunks passed to self-check LLM |
-| `LOW_CONFIDENCE_THRESHOLD` | `0.50` | Below this → LOW_CONFIDENCE flag |
-| `CITATION_BONUS` | `0.02` | Per-item confidence bonus for valid citations |
-| `CITATION_PENALTY` | `0.08` | Per-item confidence penalty for missing citations |
-| `COVERAGE_BONUS` | `0.10` | Bonus when context quality score > 0.6 |
+| `LOW_CONFIDENCE_THRESHOLD` | `0.50` | Below this → `LOW_CONFIDENCE` flag |
 
 ---
 
 ## Design Decisions
 
-### Why Groq + Llama 3.3 70B?
-Fast inference (tokens/sec far above OpenAI), no per-token cost concern for 3-minute SLA, and Llama 3.3 instruction-following quality is comparable to GPT-4o-mini for structured JSON tasks. `temperature=0` ensures deterministic outputs.
+### Why AgentScope instead of LangGraph?
 
-### Why LangGraph?
-Provides first-class support for parallel node execution via the `Send` API, built-in streaming via `astream`, and the state reducer pattern handles the fan-in from N parallel agents cleanly. Alternatives (Celery, asyncio.gather) lack the graph-level observability.
+AgentScope's `Msg` + `TextBlock` message protocol provides structured inter-agent communication without LangGraph's graph compilation overhead. Parallel fan-out via `asyncio.gather` + `asyncio.Queue` is more transparent and debuggable than LangGraph's `Send` API for dynamic dispatch. The agent registry (`_AGENT_REGISTRY`) makes adding/removing industries a one-liner.
+
+### Why a deterministic verifier after the LLM?
+
+LLMs hallucinate specific technical values even with RAG. The verifier is a zero-LLM rule engine that catches and corrects safety-critical mistakes (wrong HF frequencies, wrong reroute latitudes) before advisories reach operators. It's fast, fully auditable, and produces `ProvenanceTrace` records that Tirth's Layer IV can render.
+
+### Why BGE-small-en-v1.5 + ChromaDB?
+
+BGE-small is 384-dim, fast on CPU, and asymmetric (QUERY_PREFIX at query time, no prefix at index time) — outperforms MiniLM on retrieval benchmarks. ChromaDB PersistentClient is embedded with no server required. L2-normalized vectors stored = cosine similarity via `1 - dist/2` with zero extra computation.
 
 ### Why separate self-check LLM call?
-The generation LLM is in a "write" mindset; a separate call in a "critic" mindset catches consistency errors that the generator can't self-detect in a single pass. Cost tradeoff: 1 extra LLM call per industry, but prevents delivering factually unsupported advisories to operators making safety-critical decisions.
+
+Generation LLM is in "write" mindset. A separate call in "critic" mindset catches consistency errors the generator cannot self-detect in one pass. Cost: 1 extra Groq call per industry. Benefit: prevents factually unsupported advisories reaching operators making safety-critical decisions.
 
 ### Why deterministic routing + LLM advisory (not end-to-end LLM)?
-The G-scale → severity matrix must be auditable and reproducible. Operators need to trust that a G4 storm always triggers CRITICAL aviation status — not sometimes HIGH depending on LLM mood. The LLM's job is only to translate severity + context into actionable steps.
+
+The G-scale → severity matrix must be auditable and reproducible. Operators need certainty that G4 always triggers CRITICAL aviation status — not sometimes HIGH depending on LLM sampling. The LLM's only job: translate severity + KB context into actionable steps.
