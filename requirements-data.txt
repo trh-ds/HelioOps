@@ -2,7 +2,9 @@ chromadb
 openai
 tiktoken
 pypdf
+pdfplumber
 python-dotenv
 sentence-transformers
 redis
 fakeredis
+numpy

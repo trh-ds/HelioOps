@@ -65,6 +65,9 @@ def retrieve_chunks(
         # Collection may not exist yet (e.g. telecom_kb not yet ingested)
         return []
 
+    if collection.count() == 0:
+        return []
+
     query_embedding = _embed_query(query)
 
     results = collection.query(

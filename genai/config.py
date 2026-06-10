@@ -20,7 +20,7 @@ CHROMA_PERSIST_PATH = str(_PROJECT_ROOT / "data" / "chroma_db")
 
 GROQ_API_KEY:    str   = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL:      str   = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-GROQ_TEMPERATURE: float = 0.0   # deterministic — advisories must be reproducible
+GROQ_TEMPERATURE: float = 0.1   # near-deterministic — advisories must be reproducible
 GROQ_MAX_TOKENS: int   = 2048
 
 # Self-check uses a lighter model for speed; fall back to main model if not set

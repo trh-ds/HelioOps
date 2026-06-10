@@ -2,15 +2,15 @@
 # Install with: pip install -r requirements-genai.txt
 # Also requires requirements-data.txt (ChromaDB, sentence-transformers, redis)
 
-# LLM orchestration
-langgraph>=0.2.0
+# Agent orchestration (replaces LangGraph)
+agentscope>=2.0.0
+
+# LLM provider integration
 langchain-core>=0.2.0
 langchain-groq>=0.1.9
-
-# LLM provider (Groq — Llama 3.3 70B)
 groq>=0.9.0
 
-# Pydantic v2 (LangGraph requires v2)
+# Pydantic v2
 pydantic>=2.0.0
 
 # Async support
