@@ -1,0 +1,7 @@
+# Ignore the specific data folder you mentioned
+data/cme_training_short_data/
+
+# Highly recommended: Ignore all heavy data/embeddings for GitHub efficiency
+*.env
+.venv/
+__pycache__/
