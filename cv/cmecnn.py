@@ -845,9 +845,9 @@ def train_full_cv(
             }
         )
         print(
-            f"  Fold {fold_idx} → composite={final_m['composite_score']:.4f} | "
-            f"CPA-MAE={final_m['cpa_circular_mae_deg']:.1f}° | "
-            f"Width-MAE={final_m['width_mae_deg']:.1f}°"
+            f"  Fold {fold_idx} -> composite={final_m['composite_score']:.4f} | "
+            f"CPA-MAE={final_m['cpa_circular_mae_deg']:.1f} deg | "
+            f"Width-MAE={final_m['width_mae_deg']:.1f} deg"
         )
 
         if best_fold_score > best_global_score:
@@ -1066,7 +1066,7 @@ def main() -> None:
     n = len(manifest)
     print(
         f"Dataset: {n} samples | "
-        f"{manifest['date_obs'].min().date()} → {manifest['date_obs'].max().date()} | "
+        f"{manifest['date_obs'].min().date()} -> {manifest['date_obs'].max().date()} | "
         f"full-halo fraction: {manifest['is_full_halo'].mean():.2%}"
     )
 
@@ -1075,7 +1075,7 @@ def main() -> None:
         cnt = int((fold_assignments == fi).sum())
         d_min = manifest.loc[fold_assignments == fi, "date_obs"].min()
         d_max = manifest.loc[fold_assignments == fi, "date_obs"].max()
-        print(f"  Fold {fi}: {cnt:4d} samples  {d_min.date()} → {d_max.date()}")
+        print(f"  Fold {fi}: {cnt:4d} samples  {d_min.date()} -> {d_max.date()}")
 
     if args.skip_hpo:
         best_params: Dict = {
@@ -1088,9 +1088,9 @@ def main() -> None:
             "batch_size": 16,
             "warmup_ratio": 0.05,
         }
-        print("HPO skipped — using default hyperparameters")
+        print("HPO skipped - using default hyperparameters")
     else:
-        print(f"\nOptuna HPO — {CFG.n_trials} trials on fold {CFG.optuna_fold} ...")
+        print(f"\nOptuna HPO - {CFG.n_trials} trials on fold {CFG.optuna_fold} ...")
         best_params = run_optuna_study(manifest, fold_assignments, CFG)
         print(f"Best params:\n{json.dumps(best_params, indent=2)}")
 
@@ -1103,7 +1103,7 @@ def main() -> None:
         if k.endswith("_mean") and not math.isnan(summary[k]):
             base = k[:-5]
             std = summary.get(f"{base}_std", float("nan"))
-            print(f"  {base:40s}: {summary[k]:.4f} ± {std:.4f}")
+            print(f"  {base:40s}: {summary[k]:.4f} +/- {std:.4f}")
 
     final_ckpt = CFG.checkpoint_dir / "final_model.pt"
     if final_ckpt.exists():
