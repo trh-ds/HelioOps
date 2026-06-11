@@ -1,6 +1,8 @@
 # Ignore the specific data folder you mentioned
 data/cme_training_short_data/
-data/processed/
+data/processed_1st
+data/processed_test
+data/final_processed
 
 # Highly recommended: Ignore all heavy data/embeddings for GitHub efficiency
 *.env
@@ -10,3 +12,4 @@ __pycache__/
 #error file
 how_to_run_cv/error1.txt
 how_to_run_cv/error2.txt
+how_to_run_cv/image_description.txt
