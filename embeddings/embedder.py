@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 # Prevent transformers from importing TensorFlow, which has a conflicting protobuf version
 os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
@@ -14,12 +15,15 @@ QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 _BATCH_SIZE = 32
 _model: SentenceTransformer | None = None
+_model_lock = threading.Lock()  # prevents race on first load across asyncio.to_thread calls
 
 
 def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
-        _model = SentenceTransformer(MODEL_NAME)
+        with _model_lock:
+            if _model is None:  # double-checked locking
+                _model = SentenceTransformer(MODEL_NAME)
     return _model
 
 
