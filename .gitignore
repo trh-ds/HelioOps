@@ -1,6 +1,7 @@
 # Ignore the specific data folder you mentioned
 data/cme_training_short_data/
-data/processed/
+data/processed_1st
+data/processed_test
 
 # Highly recommended: Ignore all heavy data/embeddings for GitHub efficiency
 *.env
