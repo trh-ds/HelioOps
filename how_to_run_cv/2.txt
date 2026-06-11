@@ -1,0 +1,194 @@
+===============================================================================
+  HOW TO RUN — Commit 13: CME Detection CNN + Kinematics
+  feat(cv): CME detection CNN + bounding region + kinematics (speed, width, ETA)
+===============================================================================
+
+SYSTEM REQUIREMENTS
+-------------------
+  Python  : 3.9 or higher (3.11 recommended)
+  CUDA    : 12.1+ recommended for GPU training (CPU also works, ~20× slower)
+  RAM     : 8 GB minimum; 16 GB recommended for full 1349-sample dataset
+  VRAM    : 3 GB for batch=16 on EfficientNet-B0 at 224×224
+  Disk    : ~500 MB for checkpoints + results
+
+INSTALL DEPENDENCIES (once)
+----------------------------
+  pip install -r requirement-cv.txt
+
+  For GPU (CUDA 12.1):
+  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+  pip install -r requirements_commit13.txt --ignore-requires-python
+
+EXPECTED DATA LAYOUT
+--------------------
+  data/
+  ├── final_processed/           ← output from Commit 12 preprocessing
+  │   ├── {event_id}_meta.txt    ← one per image pair
+  │   ├── {event_id}_normalized.png   (512×512 grayscale, log-scaled)
+  │   └── {event_id}_diff.png         (512×512 grayscale, running-difference)
+  └── cme_catalog.csv            ← CME labels from SOHO LASCO catalog
+
+  cme_catalog.csv format (required columns):
+    event_id  — matches image filename prefix  e.g. "22346185"
+    cpa_deg   — Central Position Angle  [0, 360]
+    width_deg — Angular Width            [0, 360]
+    is_cme    — 1 for CME frame, 0 for quiet sun  (optional; default 1)
+
+  If cme_catalog.csv is absent the script runs with placeholder labels
+  (all CPA=0°, width=180°, is_cme=1) so the pipeline structure can be
+  verified — but evaluation metrics will be meaningless.
+
+GENERATE CATALOG FROM SOHO LASCO CME CATALOG (if not present)
+--------------------------------------------------------------
+  The SOHO LASCO CME catalog is publicly available at:
+    https://cdaw.gsfc.nasa.gov/CME_list/
+
+  Download the text catalog and filter to your event IDs, or use the
+  helper script provided separately:
+    python scripts/fetch_cme_catalog.py   (generates data/cme_catalog.csv)
+
+RUN COMMANDS
+------------
+  # Full pipeline: Optuna HPO (50 trials) → 5-fold temporal CV → inference check
+  python ml/cv/commit_13_cme_cnn.py
+
+  # Skip HPO (use hardcoded defaults), run 5-fold CV only
+  python ml/cv/commit_13_cme_cnn.py --skip-hpo
+
+  # Self-tests only — validates all components without training (runs in <30s)
+  python ml/cv/commit_13_cme_cnn.py --test
+
+  # Quick smoke run — 10 Optuna trials, 10 epochs per fold
+  python ml/cv/commit_13_cme_cnn.py --n-trials 10 --n-epochs 10
+
+  # Custom data directory and catalog path
+  python ml/cv/commit_13_cme_cnn.py \
+      --data-dir path/to/final_processed \
+      --catalog  path/to/cme_catalog.csv
+
+  # All flags combined
+  python ml/cv/commit_13_cme_cnn.py \
+      --skip-hpo \
+      --n-epochs 50 \
+      --data-dir data/final_processed \
+      --catalog  data/cme_catalog.csv
+
+OUTPUT FILES
+------------
+  ml/checkpoints/commit13/
+    fold0_best.pt … fold4_best.pt   ← best EMA checkpoint per fold
+    final_model.pt                  ← best single checkpoint (used for inference)
+
+  ml/results/commit13/
+    cv_results.json          ← per-fold metrics + CV mean±std for all metrics
+    optuna_study.pkl         ← serialised Optuna study (reload to inspect trials)
+    speed_eta_summary.json   ← sample inference output (event_id, speed, ETA, …)
+
+EXPECTED RUNTIME (full pipeline, 1349 samples, 50 epochs)
+---------------------------------------------------------
+  RTX 3060 (GPU)  : Optuna ~25 min + 5-fold CV ~35 min  ≈ 60 min total
+  CPU only        : Optuna ~8 h  + 5-fold CV ~10 h      ≈ 18 h total
+  Smoke run       : CPU ~8 min  (--n-trials 5 --n-epochs 5)
+
+EXPECTED EVALUATION METRICS (full 1349-sample dataset, 50 epochs)
+------------------------------------------------------------------
+  CPA Circular-MAE   : < 45°   (random baseline = 90°)
+  Width MAE          : < 25°   (random baseline ≈ 30°)
+  AUROC              : > 0.70  (full-halo vs partial-halo)
+  Composite score    : > 0.50
+
+PHYSICS OUTPUT RANGES (inference check)
+-----------------------------------------
+  speed_km_s  : 50 – 5000   (typical halo CMEs: 500 – 3000 km/s)
+  eta_hours   : 13 – 85     (faster CMEs arrive in ~14 h, slow ones ~80 h)
+  width_deg   : 0 – 360     (halo CMEs: 120 – 360°)
+  cpa_deg     : 0 – 360     (full circle, North=0°, CCW)
+
+PROGRAMMATIC INFERENCE (for commit-15 fusion layer)
+----------------------------------------------------
+  from ml.cv.commit_13_cme_cnn import detect_cme
+
+  storm_event = detect_cme(
+      diff_path  = "data/final_processed/22346185_diff.png",
+      norm_path  = "data/final_processed/22346185_normalized.png",
+      meta_path  = "data/final_processed/22346185_meta.txt",
+      checkpoint = "ml/checkpoints/commit13/final_model.pt",
+  )
+
+  # storm_event is a dict compatible with the StormEvent contract:
+  # {
+  #   "is_cme"         : bool,
+  #   "cme_confidence" : float,   # 0–1
+  #   "cpa_deg"        : float,   # 0–360°
+  #   "width_deg"      : float,   # 0–360°
+  #   "speed_km_s"     : float,   # 50–5000
+  #   "eta_hours"      : float,   # hours to Earth
+  #   "is_halo"        : bool,    # width >= 120°
+  #   "is_full_halo"   : bool,    # width >= 180°
+  # }
+
+ARCHITECTURE SUMMARY
+--------------------
+  Input      : 3-channel tensor [normalized, diff, diff] at 224×224
+  Backbone   : EfficientNet-B0 (1280-dim features) — default
+               ResNet-18d (512-dim) or MobileNetV3-Small (576-dim) via Optuna
+  Heads:
+    cls_head   : Linear(feat→256→1) + sigmoid  → full-halo binary probability
+    cpa_head   : Linear(feat→256→2) + L2-norm  → (sin_cpa, cos_cpa) unit vector
+    width_head : Linear(feat→256→1) + sigmoid  → width / 360
+  Training:
+    Loss       : w_cls·BCE + w_cpa·MSE(sincos) + w_width·SmoothL1
+    Optuna     : backbone · lr · weight_decay · dropout · w_cpa · w_width
+                 · batch_size · warmup_ratio
+    Schedule   : cosine-warmup LR (LambdaLR)
+    EMA        : decay=0.999, shadow model used for evaluation
+    AMP        : FP16 on CUDA, disabled on CPU
+  Kinematics  : rule-based from diff image; no labels required
+    Leading-edge radius extracted via polar ray casting at CPA direction
+    speed_km_s = displacement_km / 900 s  (one 15-min LASCO cadence)
+    eta_hours  = (1 AU − 2.2 R☉) / speed_km_s / 3600
+
+TEMPORAL SPLIT GUARANTEE (no data leakage)
+-------------------------------------------
+  Fold assignment is strictly date-ordered:
+    fold 0 = earliest 20% of dates
+    fold 4 = latest   20% of dates
+  No image from the same calendar period appears in both train and val.
+  No random splitting on frames from the same solar event.
+
+SELF-TEST COVERAGE
+-------------------
+  1. CPA encode/decode roundtrip for 7 angles including edge cases (0°, 359.9°)
+  2. Circular MAE wrap-around correctness (358°↔2° = 4°, not 356°)
+  3. Speed estimation on synthetic diff image — physical range check
+  4. ETA computation for three speeds — plausibility check
+  5. CMENet forward pass — output shapes and CPA unit-normalisation
+  6. EMA forward pass — consistency with model output
+  7. Temporal fold assignment — all 5 folds populated, date ordering preserved
+  8. Albumentations transforms — output shape (3, 224, 224) verified
+  9. _pearsonr_safe — handles edge cases (constant array, single sample)
+
+  Run: python ml/cv/commit_13_cme_cnn.py --test
+  Expected: "All self-tests PASSED." in < 30 seconds
+
+TROUBLESHOOTING
+---------------
+  "No valid image pairs found"
+    → Check that *_normalized.png and *_diff.png both exist for each event_id.
+      Frame 0 of each sequence has no diff image (no predecessor); skip it.
+
+  "timm not found"
+    → pip install 'timm>=0.9.0'
+
+  CUDA OOM during Optuna
+    → The Optuna objective catches OutOfMemoryError and returns -inf for that
+      trial, then continues. Reduce --n-trials or set batch_size=8 in defaults.
+
+  Metrics all NaN
+    → The catalog CSV is missing or has wrong column names.
+      Required: event_id, cpa_deg, width_deg.
+
+  Inference check skipped (no sample storm_event printed)
+    → final_model.pt was not written (all folds may have had no val samples).
+      Add more data or reduce --n-folds.
+===============================================================================
