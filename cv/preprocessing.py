@@ -140,7 +140,10 @@ def _find_corona_mask(image: np.ndarray) -> np.ndarray:
 # PUBLIC API — three functions that imp.md Layer ① calls directly
 # ═════════════════════════════════════════════════════════════════════════════
 
-def load_ccor1_frame(path: str) -> np.ndarray:
+def load_ccor1_frame(
+    path: str,
+    target_size: Optional[tuple[int, int]] = OUTPUT_SIZE,
+) -> np.ndarray:
     """
     Load and normalise a single CCOR-1 or LASCO FITS frame.
 
@@ -159,10 +162,14 @@ def load_ccor1_frame(path: str) -> np.ndarray:
         black.  Percentile clipping removes the spike before normalisation.
 
     Args:
-        path : path to a .fts / .fits file
+        path        : path to a .fts / .fits file
+        target_size : (width, height) to resize output — default OUTPUT_SIZE (512, 512).
+                      Set None to return at original FITS resolution (for debugging only).
+                      IMPORTANT: always use default in production. Mixed-shape sequences
+                      crash running_difference() with broadcast errors.
 
     Returns:
-        float32 ndarray, shape = original FITS shape, values in [0, 1]
+        float32 ndarray, shape = target_size (H, W), values in [0, 1]
         Ready to feed into running_difference() or the CNN DataLoader.
     """
     raw, meta = _load_raw_fits(path)
@@ -179,7 +186,9 @@ def load_ccor1_frame(path: str) -> np.ndarray:
     nonzero = data[data > 0]
     if len(nonzero) == 0:
         log.warning("All-zero frame in %s — returning black", meta["filename"])
-        return data
+        if target_size:
+            return np.zeros((target_size[1], target_size[0]), dtype=np.float32)
+        return data.astype(np.float32)
     p_low  = float(np.percentile(nonzero, 0.5))
     p_high = float(np.percentile(nonzero, 99.5))
     data   = np.clip(data, p_low, p_high)
@@ -191,8 +200,23 @@ def load_ccor1_frame(path: str) -> np.ndarray:
     d_min, d_max = data.min(), data.max()
     if d_max - d_min < 1e-8:
         log.warning("Near-constant frame after log-scale in %s", meta["filename"])
+        if target_size:
+            return np.zeros((target_size[1], target_size[0]), dtype=np.float32)
         return np.zeros_like(data, dtype=np.float32)
-    return ((data - d_min) / (d_max - d_min)).astype(np.float32)
+    data = ((data - d_min) / (d_max - d_min)).astype(np.float32)
+
+    # Step 6 — resize to common output size (FIXES shape-mismatch crash in batch runs)
+    # Root cause: LASCO archive mixes 512×512 and 1024×1024 frames in same sequence.
+    # running_difference() subtracts frame[i] - frame[i-1]. Different shapes → broadcast error.
+    # Resizing HERE guarantees all frames exit load_ccor1_frame() at identical shape.
+    if target_size is not None:
+        h, w = data.shape
+        tw, th = target_size
+        if (w, h) != (tw, th):
+            interp = cv2.INTER_AREA if (tw < w or th < h) else cv2.INTER_CUBIC
+            data = cv2.resize(data, target_size, interpolation=interp)
+
+    return data
 
 
 def running_difference(
@@ -243,6 +267,18 @@ def running_difference(
             curr = curr / 255.0
         if prev.max() > 1.5:
             prev = prev / 255.0
+
+        # Shape guard — safety net for mixed-resolution sequences.
+        # Primary fix is in load_ccor1_frame() (target_size param).
+        # This guard catches any caller that bypasses load_ccor1_frame().
+        if prev.shape != curr.shape:
+            log.warning(
+                "Shape mismatch in running_difference: "
+                "prev=%s curr=%s — resizing prev to match curr",
+                prev.shape, curr.shape,
+            )
+            interp = cv2.INTER_AREA if prev.shape[0] > curr.shape[0] else cv2.INTER_CUBIC
+            prev = cv2.resize(prev, (curr.shape[1], curr.shape[0]), interpolation=interp)
 
         diff = curr - prev  # range ~ [-1, 1]
 
