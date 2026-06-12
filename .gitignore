@@ -1,10 +1,27 @@
-# Ignore the specific data folder you mentioned
+# Training datasets (large, not tracked)
 data/cme_training_short_data/
 data/processed_1st
 data/processed_test
 data/final_processed
 
-# Highly recommended: Ignore all heavy data/embeddings for GitHub efficiency
+# Option C — raw FITS and intermediate PNGs (too large for git)
+# Annotated PNGs (~200 KB each) ARE committed — data/cached/*/annotated/ is tracked
+data/cached/ccor1/*/raw/
+data/cached/lasco/*/raw/
+data/cached/ccor1/*/png/
+data/cached/lasco/*/png/
+data/cached/ccor1/*/diff/
+data/cached/lasco/*/diff/
+
+# ML artifacts
+*.pt
+*.pth
+*.onnx
+*.pkl
+*.joblib
+*.npy
+*.npz
+
 *.env
 .venv/
 __pycache__/

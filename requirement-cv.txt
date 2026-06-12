@@ -10,3 +10,8 @@ numpy>=1.23.0
 scipy>=1.10.0
 tqdm>=4.65.0
 PyYAML>=6.0
+# Option C additions
+astropy>=5.3.0
+requests>=2.31.0
+pydantic>=2.0.0
+sunpy>=5.0.0
