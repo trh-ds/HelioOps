@@ -1,0 +1,36 @@
+{
+  "storm_id": "2024-05-G5",
+  "detected_at": "2024-05-10T09:12:00Z",
+  "confidence": 0.96,
+  "scales": { "G": 5, "S": 3, "R": 5 },
+  "cme": {
+    "detected": true,
+    "source": "SOHO/LASCO",
+    "speed_km_s": 2200,
+    "angular_width_deg": 280,
+    "direction": "earth_directed",
+    "arrival_estimate": "2024-05-11T06:00:00Z",
+    "confidence": 0.94,
+    "frame_path": "data/cached/lasco/2024-05/annotated/frame_008.png",
+    "bbox_norm": [0.12, 0.08, 0.88, 0.86]
+  },
+  "flare": {
+    "detected": true,
+    "class": "X5.8",
+    "r_scale": 5,
+    "source": "GOES-XRS",
+    "onset": "2024-05-10T09:00:00Z"
+  },
+  "l1_solar_wind": {
+    "speed_km_s": 1100,
+    "bz_nt": -46,
+    "measured_at": "2024-05-11T05:30:00Z",
+    "eta_minutes": 23
+  },
+  "timeline": [
+    { "horizon": "days_out", "source": "SOHO/LASCO CME", "t": "2024-05-10T09:12:00Z" },
+    { "horizon": "one_hour", "source": "L1 wind",         "t": "2024-05-11T05:30:00Z" },
+    { "horizon": "onset",    "source": "geomagnetic",     "t": "2024-05-11T06:00:00Z" }
+  ],
+  "noaa_alert_raw": "G5 Extreme, Kp 9+, R5 in progress, S3 in progress"
+}

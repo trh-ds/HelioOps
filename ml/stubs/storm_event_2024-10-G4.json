@@ -1,0 +1,36 @@
+{
+  "storm_id": "2024-10-G4",
+  "detected_at": "2024-10-10T12:34:00Z",
+  "confidence": 0.91,
+  "scales": { "G": 4, "S": 2, "R": 3 },
+  "cme": {
+    "detected": true,
+    "source": "CCOR-1",
+    "speed_km_s": 1480,
+    "angular_width_deg": 110,
+    "direction": "earth_directed",
+    "arrival_estimate": "2024-10-11T18:00:00Z",
+    "confidence": 0.88,
+    "frame_path": "data/cached/ccor1/2024-10/annotated/frame_012.png",
+    "bbox_norm": [0.28, 0.18, 0.74, 0.62]
+  },
+  "flare": {
+    "detected": true,
+    "class": "X1.8",
+    "r_scale": 3,
+    "source": "GOES-XRS",
+    "onset": "2024-10-10T12:30:00Z"
+  },
+  "l1_solar_wind": {
+    "speed_km_s": 720,
+    "bz_nt": -28,
+    "measured_at": "2024-10-11T17:10:00Z",
+    "eta_minutes": 35
+  },
+  "timeline": [
+    { "horizon": "days_out", "source": "CCOR-1 CME",  "t": "2024-10-10T12:34:00Z" },
+    { "horizon": "one_hour", "source": "L1 wind",      "t": "2024-10-11T17:10:00Z" },
+    { "horizon": "onset",    "source": "geomagnetic",  "t": "2024-10-11T18:00:00Z" }
+  ],
+  "noaa_alert_raw": "G4 Watch, Kp 8.3, R3 in progress"
+}
