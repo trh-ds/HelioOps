@@ -25,7 +25,6 @@ from cv.preprocessing import (
     running_difference,
     preprocess,
     find_occulter_center,
-    preprocess_sequence,
     OUTPUT_SIZE,
     _pad_to_square,
     _find_corona_mask,
@@ -334,41 +333,14 @@ class TestFindOcculterCenter:
 
 class TestEndToEndPipeline:
     """
-    Simulate what the Commit-13 CME CNN DataLoader will do:
-    load a sequence → diff → preprocess → tensor shape check.
+    Commit-12 DoD: difference images must show the CME arc brighter than
+    the quiet-corona background.  Uses load_ccor1_frame → running_difference
+    → preprocess directly (no CNN wrapper).
     """
 
     @patch("cv.preprocessing._load_raw_fits")
-    def test_preprocess_sequence_shape(self, mock_load):
-        """preprocess_sequence must return (N-1, 1, H, W) float32 tensor."""
-        # Two frames: frame 0 = quiet corona, frame 1 = corona + CME arc
-        def side_effect(path):
-            shape = (1024, 1024)
-            has_cme = "frame_1" in str(path)
-            data = _make_corona(shape=shape, cosmic_ray=True, cme_arc=has_cme)
-            meta = {"instrument": "CCOR-1", "detector": "C2",
-                    "date_obs": "2024-10-11", "exptime": 900.0,
-                    "raw_shape": shape, "filename": str(path)}
-            return data, meta
-        mock_load.side_effect = side_effect
-
-        tensor = preprocess_sequence(["frame_0.fts", "frame_1.fts"])
-
-        assert tensor.ndim == 4, f"Expected 4-D tensor (N,C,H,W), got {tensor.ndim}-D"
-        assert tensor.shape[0] == 1,                "N-1 frames for 2 inputs = 1 diff"
-        assert tensor.shape[1] == 1,                "Single channel (grayscale coronagraph)"
-        assert tensor.shape[2] == OUTPUT_SIZE[1],   f"H must be {OUTPUT_SIZE[1]}"
-        assert tensor.shape[3] == OUTPUT_SIZE[0],   f"W must be {OUTPUT_SIZE[0]}"
-        assert tensor.dtype == np.float32,          "Must be float32 for CNN"
-        assert tensor.max() <= 1.0,                 "Values must be in [0,1]"
-
-    @patch("cv.preprocessing._load_raw_fits")
-    def test_cme_visible_in_sequence_diff(self, mock_load):
-        """
-        End-to-end DoD test:
-        The diff frame from a CME sequence must show the CME region brighter
-        than the quiet-corona background.
-        """
+    def test_cme_visible_in_diff(self, mock_load):
+        """CME arc must be brighter than background in the running-difference frame."""
         def side_effect(path):
             shape = (1024, 1024)
             has_cme = "cme" in str(path)
@@ -380,12 +352,14 @@ class TestEndToEndPipeline:
             return data, meta
         mock_load.side_effect = side_effect
 
-        tensor = preprocess_sequence(["quiet_frame.fts", "cme_frame.fts"])
-        diff = tensor[0, 0]  # (H, W) in [0,1]
+        quiet = load_ccor1_frame("quiet_frame.fts")
+        cme   = load_ccor1_frame("cme_frame.fts")
+        diffs = running_difference([quiet, cme])
+        diff  = preprocess(diffs[0], enhance_contrast=True).astype(np.float32) / 255.0
 
         h, w = diff.shape
         y, x = np.ogrid[-h // 2: h // 2, -w // 2: w // 2]
-        r2 = x ** 2 + y ** 2
+        r2    = x ** 2 + y ** 2
         theta = np.arctan2(y.astype(float), x.astype(float))
         cme_angle_rad = np.deg2rad(45.0)
         cme_region = (
@@ -403,7 +377,7 @@ class TestEndToEndPipeline:
             cme_mean = float(diff[cme_region].mean())
             bg_mean  = float(diff[bg_region].mean())
             assert cme_mean > bg_mean, (
-                f"CME arc NOT visible in end-to-end diff! "
+                f"CME arc NOT visible in diff! "
                 f"CME mean={cme_mean:.3f}, BG mean={bg_mean:.3f}. "
                 f"DoD FAILED: difference images must show CME arc."
             )

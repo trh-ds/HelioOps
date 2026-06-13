@@ -354,34 +354,6 @@ def preprocess(
     return img
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# CONVENIENCE — sequence processing helpers used by the CNN DataLoader
-# ═════════════════════════════════════════════════════════════════════════════
-
-def preprocess_sequence(
-    fits_paths: list[str],
-    target_size: tuple[int, int] = OUTPUT_SIZE,
-) -> np.ndarray:
-    """
-    Load → normalise → diff → preprocess a full FITS sequence in one call.
-
-    Args:
-        fits_paths  : list of paths sorted chronologically
-        target_size : (width, height) for each output frame
-
-    Returns:
-        float32 tensor of shape (N-1, 1, H, W) — ready for PyTorch CNN/LSTM.
-        Channel dim added at axis 1 for Conv2d compatibility.
-    """
-    frames = [load_ccor1_frame(p) for p in fits_paths]
-    diffs  = running_difference(frames)
-    out    = []
-    for d in diffs:
-        preprocessed = preprocess(d, target_size=target_size, enhance_contrast=True)
-        out.append(preprocessed.astype(np.float32) / 255.0)  # back to [0,1] for training
-    return np.stack(out, axis=0)[:, np.newaxis, :, :]  # (N-1, 1, H, W)
-
-
 def find_occulter_center(image: np.ndarray) -> tuple[int, int, int]:
     """
     Detect the occulting disk center (cx, cy) and radius in pixels.

@@ -20,8 +20,6 @@ bytes every run.  Satisfies the commit-23 byte-identical DoD.
 Imports from existing codebase:
   cv.preprocessing    — load_ccor1_frame, running_difference, preprocess,
                         find_occulter_center  (commit 12, unchanged)
-  cv.cmecnn           — estimate_speed_from_diff, compute_eta_hours
-                        (commit 13, used as DONKI-unavailable fallback only)
 """
 
 from __future__ import annotations

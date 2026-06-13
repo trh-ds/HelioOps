@@ -1,7 +1,6 @@
 """
 cv/detect.py — Heliospheric detection entry point (Option C)
 
-Replaces the CNN-based detect() from cv/cmecnn.py with a threshold + DONKI pipeline.
 Called by Tirth's replay engine:  from cv.detect import detect
 
 Two modes:
