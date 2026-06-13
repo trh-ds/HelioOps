@@ -33,6 +33,7 @@ from genai.config import (
     GROQ_MAX_TOKENS,
     LOW_CONFIDENCE_THRESHOLD,
     RAG_LOW_COVERAGE_THRESHOLD,
+    MAX_PROMPT_TOKENS,
     SELF_CHECK_MAX_CHUNKS,
 )
 from genai.models import (
@@ -264,13 +265,21 @@ async def self_check_hallucination(
         (True, "")          — no hallucinations detected
         (False, "reason")   — potential hallucination found
     """
-    # Use only the top-N most similar chunks to keep the check fast
+    # Use only the top-N most similar chunks to keep the check fast and within budget
     top_chunks = sorted(context_chunks, key=lambda c: c.similarity, reverse=True)[
         :SELF_CHECK_MAX_CHUNKS
     ]
-    context_text = "\n\n".join(
-        f"[{c.source}]\n{c.text}" for c in top_chunks
-    )
+    # Truncate context to half the token budget (self-check needs less context)
+    max_chars = MAX_PROMPT_TOKENS * 2  # rough char-to-token ratio ~2:1
+    context_parts: list[str] = []
+    total = 0
+    for c in top_chunks:
+        part = f"[{c.source}]\n{c.text}"
+        if total + len(part) > max_chars:
+            break
+        context_parts.append(part)
+        total += len(part)
+    context_text = "\n\n".join(context_parts)
 
     action_summary = "\n".join(
         f"Step {a.step}: {a.action} (source_ref: {a.source_ref or 'NONE'})"
