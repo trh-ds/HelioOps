@@ -46,3 +46,8 @@ frontend/build/
 frontend/.env*.local
 frontend/.vercel/
 frontend/*.tsbuildinfo
+frontend/ezgif-664f0582ff119a0b-jpg.zip
+
+# opencode config
+.opencode/
+

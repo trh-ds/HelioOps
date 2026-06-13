@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
-
 :root {
   --color-bg: #09090b;
   --color-surface: rgba(24, 24, 27, 0.7);
@@ -11,8 +9,6 @@
   --color-text: #fafafa;
   --color-text-muted: rgba(255, 255, 255, 0.5);
   --color-primary: #00FF9D;
-  --color-accent: #8B5CF6;
-  --color-warm: #f59e0b;
   --color-muted-bg: rgba(255, 255, 255, 0.03);
 }
 
@@ -22,14 +18,9 @@
   box-sizing: border-box;
 }
 
-html {
-  scroll-behavior: smooth;
-}
-
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: 'Inter', sans-serif;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -50,7 +41,7 @@ body {
 }
 
 ::selection {
-  background: rgba(99, 102, 241, 0.25);
+  background: rgba(0, 255, 157, 0.2);
   color: #fff;
 }
 
@@ -76,7 +67,7 @@ body {
 }
 
 .gradient-text-accent {
-  background: linear-gradient(135deg, #00FF9D 0%, #8B5CF6 100%);
+  background: linear-gradient(135deg, #00FF9D 0%, #059669 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -89,22 +80,13 @@ body {
   background-clip: text;
 }
 
-.gradient-border {
-  position: relative;
-}
-.gradient-border::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, rgba(0,255,157,0.3), rgba(139,92,246,0.3));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
-.text-glow {
-  text-shadow: 0 0 40px rgba(0, 255, 157, 0.1);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
