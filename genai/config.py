@@ -23,13 +23,17 @@ GROQ_MODEL:      str   = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_TEMPERATURE: float = 0.1   # near-deterministic — advisories must be reproducible
 GROQ_MAX_TOKENS: int   = 2048
 
-# Self-check uses a lighter model for speed; fall back to main model if not set
-GROQ_CHECKER_MODEL: str = os.getenv("GROQ_CHECKER_MODEL", GROQ_MODEL)
+# Self-check uses a lighter model to save tokens; fall back to main model if not set
+GROQ_CHECKER_MODEL: str = os.getenv("GROQ_CHECKER_MODEL", "llama-3.1-8b-instant")
+
+# ── Token Budget ─────────────────────────────────────────────────────────────
+
+MAX_PROMPT_TOKENS:  int = int(os.getenv("MAX_PROMPT_TOKENS", "4000"))  # max context tokens in advisory prompt
 
 # ── RAG ───────────────────────────────────────────────────────────────────────
 
-RAG_TOP_K:                int   = 8     # chunks per industry KB query
-RAG_IMPACT_MATRIX_TOP_K:  int   = 4     # chunks from impact_matrix_kb per query
+RAG_TOP_K:                int   = 5     # chunks per industry KB query
+RAG_IMPACT_MATRIX_TOP_K:  int   = 2     # chunks from impact_matrix_kb per query
 RAG_MIN_SIMILARITY:        float = 0.35  # drop chunks below this cosine similarity
 RAG_LOW_COVERAGE_THRESHOLD: int  = 3     # fewer valid chunks → LOW_COVERAGE flag
 

@@ -73,7 +73,6 @@ genai/
 ├── contracts.py               Layer III→IV data contracts (§7.2–7.4 of imp.md)
 ├── verifier.py                Deterministic rule engine: ICAO HF, reroute lat, NERC GIC, GMDSS
 ├── orchestrator.py            AgentScope parallel pipeline — replaces graph.py
-├── graph_langgraph_legacy.py  Archived LangGraph version (dead code, kept for reference)
 ├── agents/
 │   ├── __init__.py
 │   ├── base.py                IndustryAgentBase — full RAG+LLM+guardrails pipeline

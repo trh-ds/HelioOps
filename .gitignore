@@ -1,4 +1,5 @@
 # Training datasets (large, not tracked)
+cme_training_short_data/
 data/cme_training_short_data/
 data/processed_1st
 data/processed_test
@@ -26,14 +27,9 @@ data/cached/lasco/*/diff/
 .venv/
 venv/
 __pycache__/
+.pytest_cache/
 
-#error file
-how_to_run_cv/error1.txt
-how_to_run_cv/error2.txt
-how_to_run_cv/image_description.txt
 
-ML_after_CV
-ml_dl.md
 frontend/public/frames_for_scrolling_frontend
 SKILL_ui_ux_in_txt.txt
 frontend_prompt.md

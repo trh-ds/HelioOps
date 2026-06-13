@@ -8,7 +8,23 @@ Includes:
 
 from __future__ import annotations
 
+import tiktoken
+
+from genai.config import MAX_PROMPT_TOKENS
 from genai.models import RetrievedChunk, StormEvent
+
+_enc: tiktoken.Encoding | None = None
+
+
+def _encoder() -> tiktoken.Encoding:
+    global _enc
+    if _enc is None:
+        _enc = tiktoken.get_encoding("cl100k_base")
+    return _enc
+
+
+def _token_len(text: str) -> int:
+    return len(_encoder().encode(text))
 
 # ── JSON Output Schema ────────────────────────────────────────────────────────
 # Injected into every prompt so the LLM always has the exact schema in scope.
@@ -51,8 +67,9 @@ def format_advisory_prompt(
       5. Previous errors (if retrying)
       6. Final instruction
     """
-    # --- Section 1: Retrieved Context ---
+    # --- Section 1: Retrieved Context (token-budgeted) ---
     context_blocks: list[str] = []
+    context_tokens = 0
     for chunk in chunks:
         block = (
             f"[CHUNK: {chunk.chunk_id} | "
@@ -62,7 +79,11 @@ def format_advisory_prompt(
             f"{chunk.text}\n"
             f"---"
         )
+        block_tokens = _token_len(block)
+        if context_tokens + block_tokens > MAX_PROMPT_TOKENS:
+            break  # stop adding chunks once budget exceeded
         context_blocks.append(block)
+        context_tokens += block_tokens
 
     context_section = (
         "\n\n".join(context_blocks)
