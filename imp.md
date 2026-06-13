@@ -1638,7 +1638,8 @@ def export_flywheel(output_path: str = None):
 | 13 | `feat(cv): CME detection CNN + bounding region + kinematics (speed, width, ETA)` | Neal | `speed_km_s` in 500–3000 range for Oct 2024 storm |
 | 14 | `feat(cv): flare detection + R-scale on SUVI/XRS` | Neal | R-scale matches NOAA event report for Oct 2024 |
 | 15 | `feat(cv): fusion → real StormEvent with calibrated confidence + 3-point timeline` | Neal | `detect("2024-10-G4")` byte-identical across 3 runs |
-| 16 | `feat(ui): detection panel — imagery + CME bounding box overlay + kinematics readout` | Tirth | WOW #1 visible on console with real CV output |
+| 16 | `feat(ui): detection panel — imagery + CME bounding box overlay + kinematics readout` | Tirth | 
+ #1 visible on console with real CV output |
 | 17 | `feat(ml): LightGBM quantile regression — GPS error + HF blackout (q025/q500/q975)` | Neal | May 2024 GPS median > 15 m (documented 15–40 m) |
 | 18 | `feat(ml): severity floor + OOD detection + low_confidence flag → ImpactAssessment` | Neal | OOD input (wind > 2500 km/s) → `low_confidence=True` |
 | 19 | `feat(ui): impact panel — metric rows + CI bars + low-confidence badge` | Tirth | GPS error metres + HF % with CI bars visible |
