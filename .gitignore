@@ -1,4 +1,5 @@
 # Training datasets (large, not tracked)
+cme_training_short_data/
 data/cme_training_short_data/
 data/processed_1st
 data/processed_test
