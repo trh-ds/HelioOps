@@ -197,10 +197,10 @@ export default function PipelinePage() {
               Pipeline complete &mdash; {completed.advisories} advisories, {completed.verified} verified
             </span>
             <Link
-              href={`/dashboard/storms/${completed.stormId}`}
+              href={`/dashboard/results/${completed.stormId}`}
               className="flex items-center gap-1.5 text-xs text-aurora/70 hover:text-aurora font-body transition-colors"
             >
-              View results <ExternalLink className="w-3 h-3" />
+              View advisories <ExternalLink className="w-3 h-3" />
             </Link>
           </div>
         )}

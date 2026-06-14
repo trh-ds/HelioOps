@@ -75,15 +75,12 @@ class TestRateLimiting:
 
     def test_endpoint_returns_429_when_rate_limited(self):
         """POST /api/detect/{storm_id} returns 429 when rate limited."""
+        from unittest.mock import patch
         storm = "2024-10-G4"
-        # First call may or may not be allowed depending on prior tests
-        # but a second immediate call should be 429
-        resp1 = client.post(f"/api/detect/{storm}")
-        resp2 = client.post(f"/api/detect/{storm}")
-        # One of them should be 429 (rate limited), the other 404/500/200
-        # The key assertion: we get a 429 at some point
-        statuses = {resp1.status_code, resp2.status_code}
-        assert 429 in statuses, f"Expected 429 in {statuses}"
+        # Patch check_rate_limit to return False (simulating back-to-back call)
+        with patch("backend.app.check_rate_limit", return_value=False):
+            resp = client.post(f"/api/detect/{storm}")
+        assert resp.status_code == 429, f"Expected 429, got {resp.status_code}"
 
 
 # ── Storm ID Validation ─────────────────────────────────────────────────────

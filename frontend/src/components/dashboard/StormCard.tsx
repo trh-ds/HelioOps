@@ -78,8 +78,17 @@ export default function StormCard({ stormId, completed }: StormCardProps) {
               <span className="text-warm font-mono">{completed.error_count}</span>
             </div>
           )}
-          <div className="pt-2 border-t border-white/[0.06] text-white/30">
-            {new Date(completed.completed_at).toLocaleDateString()}
+          <div className="pt-2 border-t border-white/[0.06] text-white/30 flex justify-between items-center">
+            <span>{new Date(completed.completed_at).toLocaleDateString()}</span>
+            {completed.advisory_count > 0 && (
+              <Link
+                href={`/dashboard/results/${stormId}`}
+                onClick={(e) => e.stopPropagation()}
+                className="text-aurora/60 hover:text-aurora transition-colors"
+              >
+                View results &rarr;
+              </Link>
+            )}
           </div>
         </div>
       ) : (

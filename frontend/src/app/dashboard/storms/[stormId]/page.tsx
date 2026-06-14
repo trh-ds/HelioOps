@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState, use } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
+import { useParams } from "next/navigation"
 import { api, ApiError } from "@/lib/api"
 import type { PipelineResult } from "@/types/storm"
 import ImpactDisplay from "@/components/dashboard/ImpactDisplay"
@@ -13,6 +14,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle,
+  ExternalLink,
   Loader2,
   Play,
   Radio,
@@ -52,12 +54,8 @@ function ScaleBadge({
   )
 }
 
-export default function StormDetailPage({
-  params,
-}: {
-  params: Promise<{ stormId: string }>
-}) {
-  const { stormId } = use(params)
+export default function StormDetailPage() {
+  const { stormId } = useParams<{ stormId: string }>()
   const [result, setResult] = useState<PipelineResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -173,6 +171,16 @@ export default function StormDetailPage({
               )}
               {running ? "Running..." : "Run Pipeline"}
             </button>
+
+            {hasResult && (result?.advisories?.length ?? 0) > 0 && (
+              <Link
+                href={`/dashboard/results/${stormId}`}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-display font-medium bg-white/[0.04] text-white/60 border border-white/[0.08] hover:text-white/90 hover:border-white/[0.15] transition-all duration-200"
+              >
+                View Advisories
+                <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            )}
           </div>
         </div>
 

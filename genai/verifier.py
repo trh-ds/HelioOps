@@ -312,14 +312,39 @@ def verify_advisory(
         requires_human=requires_human,
     )
 
-    # Build provenance trace — 6-step chain
+    # Build provenance trace — 6-step chain with confidence scores
+    # Raw data: 1.0 if NOAA alert text present, 0.5 if fallback
+    raw_alert = storm_event.get("noaa_alert_raw", "")
+    raw_conf = 1.0 if raw_alert and len(raw_alert) > 20 else 0.5
+
+    # Impact: use HF blackout probability as confidence proxy
+    impact_conf = None
+    if impact_assessment:
+        impact_conf = impact_assessment.get("hf_blackout_prob")
+        if impact_conf is None:
+            impact_conf = 0.95  # fallback: CI level
+
+    # Retrieval: confidence based on whether real sources were cited
+    retrieval_conf = 0.9 if sources and sources[0] != "UNKNOWN" else 0.3
+
+    # Verifier: pass rate across all checks
+    if all_checks:
+        passed = sum(1 for c in all_checks if c.status == "pass")
+        verifier_conf = passed / len(all_checks)
+    else:
+        verifier_conf = 1.0  # no checks needed = full pass
+
+    # Output: advisory confidence score from LLM
+    output_conf = advisory.confidence_score
+
     provenance = ProvenanceTrace(
         trace_id=trace_id,
         advisory_id=advisory_id,
         chain=[
             ProvenanceStep(
                 step="raw_data",
-                ref=storm_event.get("noaa_alert_raw", "NOAA SWPC alert"),
+                ref=storm_event.get("noaa_alert_raw", "NOAA SWPC alert") or "NOAA SWPC alert",
+                confidence=raw_conf,
             ),
             ProvenanceStep(
                 step="detection",
@@ -329,19 +354,23 @@ def verify_advisory(
             ProvenanceStep(
                 step="impact",
                 ref=f"ImpactAssessment:{storm_event.get('storm_id', 'unknown')}",
+                confidence=impact_conf,
                 ci_level=0.95 if impact_assessment else None,
             ),
             ProvenanceStep(
                 step="retrieval",
                 ref=f"{cited_procedure['source']} :: {cited_procedure['ref']}",
+                confidence=retrieval_conf,
             ),
             ProvenanceStep(
                 step="verifier",
                 ref=_verifier_summary(all_checks),
+                confidence=verifier_conf,
             ),
             ProvenanceStep(
                 step="output",
                 ref=f"VerifiedAdvisory:{advisory_id}",
+                confidence=output_conf,
             ),
         ],
     )
