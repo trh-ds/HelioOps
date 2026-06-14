@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 
 class PipelineResult(BaseModel):
     """Complete output from one pipeline run."""
+
     storm_id: str
     cv_event: dict = Field(default_factory=dict)
     impact_prediction: dict | None = None
@@ -66,9 +67,12 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
     # ── Step 1: CV Detection ─────────────────────────────────────────────
     try:
         from cv.detect import detect
+
         cv_event = await asyncio.to_thread(detect, storm_id, base_dir)
         result.cv_event = cv_event.model_dump()
-        log.info("Detection complete: %s (confidence=%.3f)", storm_id, cv_event.confidence)
+        log.info(
+            "Detection complete: %s (confidence=%.3f)", storm_id, cv_event.confidence
+        )
     except Exception as exc:
         err = f"Detection failed: {exc}"
         log.error(err)
@@ -80,12 +84,16 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
     # ── Step 2: ML Impact Prediction ─────────────────────────────────────
     try:
         from ML_after_CV.inference import predict as ml_predict
+
         impact = await asyncio.to_thread(ml_predict, result.cv_event)
         result.impact_prediction = impact.model_dump()
         log.info(
             "Impact prediction: GPS=%.2fm [%.2f–%.2f], HF=%.2f%% [%.2f–%.2f]",
-            impact.gps_error_m, impact.gps_error_ci_low, impact.gps_error_ci_high,
-            impact.hf_blackout_prob * 100, impact.hf_blackout_ci_low * 100,
+            impact.gps_error_m,
+            impact.gps_error_ci_low,
+            impact.gps_error_ci_high,
+            impact.hf_blackout_prob * 100,
+            impact.hf_blackout_ci_low * 100,
             impact.hf_blackout_ci_high * 100,
         )
     except Exception as exc:
@@ -96,9 +104,14 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
     # ── Step 3: Schema Adaptation ────────────────────────────────────────
     try:
         from backend.adapter import adapt_storm_event
+
         genai_event = adapt_storm_event(cv_event)
         result.genai_event = genai_event.model_dump(mode="json")
-        log.info("Adapted to GenAI schema: %s Kp=%.1f", genai_event.g_scale.value, genai_event.kp_index)
+        log.info(
+            "Adapted to GenAI schema: %s Kp=%.1f",
+            genai_event.g_scale.value,
+            genai_event.kp_index,
+        )
     except Exception as exc:
         err = f"Schema adaptation failed: {exc}"
         log.error(err)
@@ -110,6 +123,7 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
     # ── Step 4: GenAI Advisory Generation ────────────────────────────────
     try:
         from genai import run_pipeline
+
         advisories = await run_pipeline(genai_event)
         result.advisories = [a.model_dump(mode="json") for a in advisories]
         log.info("Generated %d advisories", len(advisories))
@@ -142,8 +156,10 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
 
                 log.info(
                     "Verified advisory %s: %s/%s [%s]",
-                    verified.advisory_id, verified.industry,
-                    verified.severity, verified.verifier.status,
+                    verified.advisory_id,
+                    verified.industry,
+                    verified.severity,
+                    verified.verifier.status,
                 )
             except Exception as exc:
                 err = f"Verification failed for {advisory.advisory_id}: {exc}"
@@ -166,65 +182,116 @@ async def stream_full_pipeline(
         return datetime.now(timezone.utc).isoformat()
 
     # ── Step 1: Detection ────────────────────────────────────────────────
-    yield {"event": "pipeline.stage", "stage": "detection", "status": "started", "timestamp": now()}
+    yield {
+        "event": "pipeline.stage",
+        "stage": "detection",
+        "status": "started",
+        "timestamp": now(),
+    }
 
     try:
         from cv.detect import detect
+
         cv_event = await asyncio.to_thread(detect, storm_id, base_dir)
         cv_dict = cv_event.model_dump()
         yield {
-            "event": "pipeline.stage", "stage": "detection", "status": "completed",
-            "data": {"storm_id": storm_id, "confidence": cv_event.confidence,
-                     "scales": cv_event.scales},
+            "event": "pipeline.stage",
+            "stage": "detection",
+            "status": "completed",
+            "data": {
+                "storm_id": storm_id,
+                "confidence": cv_event.confidence,
+                "scales": cv_event.scales,
+            },
             "timestamp": now(),
         }
     except Exception as exc:
-        yield {"event": "pipeline.error", "stage": "detection", "error": str(exc), "timestamp": now()}
+        yield {
+            "event": "pipeline.error",
+            "stage": "detection",
+            "error": str(exc),
+            "timestamp": now(),
+        }
         return
 
     # ── Step 2: Impact Prediction ────────────────────────────────────────
-    yield {"event": "pipeline.stage", "stage": "impact_prediction", "status": "started", "timestamp": now()}
+    yield {
+        "event": "pipeline.stage",
+        "stage": "impact_prediction",
+        "status": "started",
+        "timestamp": now(),
+    }
 
     impact_dict = None
     try:
         from ML_after_CV.inference import predict as ml_predict
+
         impact = await asyncio.to_thread(ml_predict, cv_dict)
         impact_dict = impact.model_dump()
         yield {
-            "event": "pipeline.stage", "stage": "impact_prediction", "status": "completed",
-            "data": impact_dict, "timestamp": now(),
-        }
-    except Exception as exc:
-        yield {
-            "event": "pipeline.stage", "stage": "impact_prediction", "status": "failed",
-            "error": str(exc), "timestamp": now(),
-        }
-
-    # ── Step 3: Schema Adaptation ────────────────────────────────────────
-    yield {"event": "pipeline.stage", "stage": "adaptation", "status": "started", "timestamp": now()}
-
-    try:
-        from backend.adapter import adapt_storm_event
-        genai_event = adapt_storm_event(cv_event)
-        yield {
-            "event": "pipeline.stage", "stage": "adaptation", "status": "completed",
-            "data": {"g_scale": genai_event.g_scale.value, "kp_index": genai_event.kp_index},
+            "event": "pipeline.stage",
+            "stage": "impact_prediction",
+            "status": "completed",
+            "data": impact_dict,
             "timestamp": now(),
         }
     except Exception as exc:
-        yield {"event": "pipeline.error", "stage": "adaptation", "error": str(exc), "timestamp": now()}
+        yield {
+            "event": "pipeline.stage",
+            "stage": "impact_prediction",
+            "status": "failed",
+            "error": str(exc),
+            "timestamp": now(),
+        }
+
+    # ── Step 3: Schema Adaptation ────────────────────────────────────────
+    yield {
+        "event": "pipeline.stage",
+        "stage": "adaptation",
+        "status": "started",
+        "timestamp": now(),
+    }
+
+    try:
+        from backend.adapter import adapt_storm_event
+
+        genai_event = adapt_storm_event(cv_event)
+        yield {
+            "event": "pipeline.stage",
+            "stage": "adaptation",
+            "status": "completed",
+            "data": {
+                "g_scale": genai_event.g_scale.value,
+                "kp_index": genai_event.kp_index,
+            },
+            "timestamp": now(),
+        }
+    except Exception as exc:
+        yield {
+            "event": "pipeline.error",
+            "stage": "adaptation",
+            "error": str(exc),
+            "timestamp": now(),
+        }
         return
 
     # ── Step 4: GenAI Advisory Generation (streaming) ────────────────────
-    yield {"event": "pipeline.stage", "stage": "advisory_generation", "status": "started", "timestamp": now()}
+    yield {
+        "event": "pipeline.stage",
+        "stage": "advisory_generation",
+        "status": "started",
+        "timestamp": now(),
+    }
 
     advisories = []
     try:
         from genai import stream_pipeline
+
         async for event in stream_pipeline(genai_event):
             yield event
             if event.get("event") == "advisory.generated":
                 from genai.models import AdvisoryOutput
+
                 try:
                     adv = AdvisoryOutput(**event["data"])
                     advisories.append(adv)
@@ -232,13 +299,21 @@ async def stream_full_pipeline(
                     pass
     except Exception as exc:
         yield {
-            "event": "pipeline.stage", "stage": "advisory_generation", "status": "failed",
-            "error": str(exc), "timestamp": now(),
+            "event": "pipeline.stage",
+            "stage": "advisory_generation",
+            "status": "failed",
+            "error": str(exc),
+            "timestamp": now(),
         }
 
     # ── Step 5: Verification ─────────────────────────────────────────────
     if advisories:
-        yield {"event": "pipeline.stage", "stage": "verification", "status": "started", "timestamp": now()}
+        yield {
+            "event": "pipeline.stage",
+            "stage": "verification",
+            "status": "started",
+            "timestamp": now(),
+        }
 
         from genai.verifier import verify_advisory, verifier_stream_events
 
@@ -281,7 +356,9 @@ async def stream_full_pipeline(
                 }
 
         yield {
-            "event": "pipeline.stage", "stage": "verification", "status": "completed",
+            "event": "pipeline.stage",
+            "stage": "verification",
+            "status": "completed",
             "data": {"verified_count": len(verified_list)},
             "timestamp": now(),
         }

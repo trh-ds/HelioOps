@@ -4,6 +4,7 @@ from backend.config import settings
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "backend.app:app",
         host=settings.HOST,
