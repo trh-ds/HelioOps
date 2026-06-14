@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,6 +62,15 @@ class Settings(BaseSettings):
     METRICS_PATH: str = "/metrics"
 
     AVAILABLE_STORM_IDS: list[str] = ["2024-10-G4", "2024-05-G5"]
+
+    @field_validator("GROQ_API_KEY")
+    @classmethod
+    def validate_groq_key(cls, v: str) -> str:
+        if not v:
+            import warnings
+
+            warnings.warn("GROQ_API_KEY not set — GenAI advisories will fail")
+        return v
 
     @property
     def is_production(self) -> bool:

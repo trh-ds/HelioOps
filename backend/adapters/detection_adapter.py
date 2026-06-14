@@ -22,10 +22,13 @@ class CVDetectionAdapter(DetectionPort):
 
     def detect(self, storm_id: str, base_dir: str = ".") -> Any:
         from cv.detect import detect
+
         log.info("detection_started", storm_id=storm_id)
         try:
             result = detect(storm_id, base_dir)
-            log.info("detection_completed", storm_id=storm_id, confidence=result.confidence)
+            log.info(
+                "detection_completed", storm_id=storm_id, confidence=result.confidence
+            )
             return result
         except Exception as exc:
             log.error("detection_failed", storm_id=storm_id, error=str(exc))
