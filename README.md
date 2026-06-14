@@ -305,6 +305,7 @@ python -m pytest tests/test_pipeline.py -v
 
 ## Team
 
-- **Neal** — CV Detection (Layer 1) + ML Impact Models (Layer 2)
-- **Priyanshu** — GenAI Advisory (Layer 3) + Backend Pipeline + Database
-- **Tirth** — Frontend Dashboard (Layer 4) + DevOps + Deployment
+- **Parshva** - Data Engineer + ML Impact Models (Layer 2)
+- **Neal** - CV Detection (Layer 1) + ML Pipeline
+- **Priyanshu** - GenAI Advisory (Layer 3) + Backend Pipeline + Database
+- **Tirth** - Frontend Dashboard (Layer 4) + DevOps + Deployment
