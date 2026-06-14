@@ -49,6 +49,14 @@ class Settings(BaseSettings):
 
     ML_CHECKPOINT_DIR: str = "ML_after_CV/checkpoints"
 
+    RESULT_REPOSITORY: str = "memory"
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_PIPELINE_RESULTS_TABLE: str = "pipeline_runs"
+    SUPABASE_ADVISORIES_TABLE: str = "advisories"
+    SUPABASE_VERIFIED_ADVISORIES_TABLE: str = "verified_advisories"
+    SUPABASE_PROVENANCE_TRACES_TABLE: str = "provenance_traces"
+
     METRICS_ENABLED: bool = True
     METRICS_PATH: str = "/metrics"
 

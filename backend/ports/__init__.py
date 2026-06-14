@@ -7,7 +7,7 @@ The pipeline and API layer depend on these ports, never on adapters directly.
 
 from backend.ports.detection import DetectionPort
 from backend.ports.prediction import PredictionPort
-from backend.advisory import AdvisoryPort, VerificationPort
+from backend.ports.advisory import AdvisoryPort, VerificationPort
 from backend.ports.repository import ResultRepository
 
 __all__ = [

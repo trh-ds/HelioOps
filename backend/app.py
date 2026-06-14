@@ -42,7 +42,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.adapters.detection_adapter import CVDetectionAdapter
 from backend.adapters.prediction_adapter import MLPredictionAdapter
 from backend.adapters.advisory_adapter import GenAIAdvisoryAdapter, GenAIVerificationAdapter
-from backend.adapters.repository_adapter import InMemoryResultRepository
+from backend.adapters.repository_adapter import InMemoryResultRepository, SupabaseResultRepository
 from backend.adapters.schema_adapter import adapt_storm_event
 from backend.health import router as health_router
 from backend.health import (
@@ -53,7 +53,7 @@ from backend.health import (
     record_advisory_request,
 )
 from backend.health import _requester_metrics
-from backend.pipeline import PipelineResult, run_full_pipeline, stream_full_pipeline
+from backend.pipeline import PipelineResult, get_result, run_full_pipeline, stream_full_pipeline
 
 app = FastAPI(
     title="HelioOps API",
@@ -75,7 +75,47 @@ detection_adapter = CVDetectionAdapter(available_storm_ids=settings.AVAILABLE_ST
 prediction_adapter = MLPredictionAdapter()
 advisory_adapter = GenAIAdvisoryAdapter()
 verification_adapter = GenAIVerificationAdapter()
-result_repo = InMemoryResultRepository()
+
+
+def _build_result_repository():
+    if settings.RESULT_REPOSITORY.lower() == "supabase":
+        if not settings.SUPABASE_URL or not settings.SUPABASE_ANON_KEY:
+            raise RuntimeError(
+                "Supabase repository selected, but HELIOOPS_SUPABASE_URL "
+                "or HELIOOPS_SUPABASE_ANON_KEY is missing."
+            )
+        return SupabaseResultRepository(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_ANON_KEY,
+            pipeline_results_table=settings.SUPABASE_PIPELINE_RESULTS_TABLE,
+            advisories_table=settings.SUPABASE_ADVISORIES_TABLE,
+            verified_advisories_table=settings.SUPABASE_VERIFIED_ADVISORIES_TABLE,
+            provenance_traces_table=settings.SUPABASE_PROVENANCE_TRACES_TABLE,
+        )
+    return InMemoryResultRepository()
+
+
+result_repo = _build_result_repository()
+
+
+def _persist_result(result: PipelineResult) -> None:
+    result_repo.save(result.storm_id, result)
+    for advisory, verified, provenance in zip(
+        result.advisories,
+        result.verified_advisories,
+        result.provenance_traces,
+    ):
+        advisory_id = verified.get("advisory_id")
+        if advisory_id:
+            result_repo.save_advisory(
+                advisory_id,
+                {
+                    "storm_id": result.storm_id,
+                    "advisory": advisory,
+                    "verified_advisory": verified,
+                    "provenance_trace": provenance,
+                },
+            )
 
 
 def _available_storms() -> list[str]:
@@ -100,6 +140,12 @@ async def detect_storm(storm_id: str):
     duration = time.monotonic() - start
     record_pipeline_duration(duration)
     log.info("pipeline_completed", storm_id=storm_id, duration_seconds=round(duration, 3))
+    try:
+        _persist_result(result)
+    except Exception as exc:
+        record_pipeline_error()
+        log.error("repository_persist_error", storm_id=storm_id, error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Pipeline result could not be saved: {exc}")
 
     if not result.cv_event:
         record_pipeline_error()
@@ -189,6 +235,16 @@ async def websocket_stream(ws: WebSocket):
 
                 async for event in stream_full_pipeline(storm_id):
                     await _ws_manager.send(ws, event)
+                streamed_result = get_result(storm_id)
+                if streamed_result:
+                    try:
+                        _persist_result(streamed_result)
+                    except Exception as exc:
+                        log.error("repository_persist_error", storm_id=storm_id, error=str(exc))
+                        await _ws_manager.send(ws, {
+                            "event": "error",
+                            "message": f"Pipeline result could not be saved: {exc}",
+                        })
             else:
                 await _ws_manager.send(ws, {
                     "event": "error",

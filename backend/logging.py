@@ -41,6 +41,11 @@ def setup_logging(log_level: str = "INFO", log_format: str = "json") -> None:
         structlog.processors.StackInfoRenderer(),
         structlog.processors.UnicodeDecoder(),
     ]
+    foreign_pre_chain = [
+        processor
+        for processor in shared_processors
+        if processor is not structlog.stdlib.filter_by_level
+    ]
 
     if log_format == "json":
         renderer = structlog.processors.JSONRenderer()
@@ -63,7 +68,7 @@ def setup_logging(log_level: str = "INFO", log_format: str = "json") -> None:
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             renderer,
         ],
-        foreign_pre_chain=shared_processors,
+        foreign_pre_chain=foreign_pre_chain,
     )
 
     handler = logging.StreamHandler(sys.stdout)
