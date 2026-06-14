@@ -8,6 +8,12 @@ const mockConnect = vi.fn()
 const mockDisconnect = vi.fn()
 const mockSubscribe = vi.fn()
 
+const mockAddToast = vi.fn()
+vi.mock("@/components/Toast", () => ({
+  ToastProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useToast: () => ({ addToast: mockAddToast, dismissToast: vi.fn() }),
+}))
+
 vi.mock("@/lib/api", () => ({
   api: {
     getStorms: () => mockGetStorms(),

@@ -77,11 +77,25 @@ describe("API Client", () => {
         statusText: "Internal Server Error",
         json: async () => ({ detail: "Database error" }),
       })
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        json: async () => ({ detail: "Database error" }),
+      })
 
       await expect(api.getStorms()).rejects.toThrow(ApiError)
     })
 
     it("should handle malformed error response", async () => {
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Server Error",
+        json: async () => {
+          throw new Error("Invalid JSON")
+        },
+      })
       ;(global.fetch as any).mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -368,6 +382,12 @@ describe("API Client", () => {
         statusText: "Service Unavailable",
         json: async () => ({ status: "degraded" }),
       })
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        json: async () => ({ status: "degraded" }),
+      })
 
       await expect(api.getHealthReady()).rejects.toMatchObject({
         status: 503,
@@ -392,6 +412,11 @@ helioops_pipeline_errors_total 2`
     })
 
     it("should throw ApiError on failure", async () => {
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+      })
       ;(global.fetch as any).mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -504,6 +529,12 @@ metric3 1.2e-3
         statusText: "Server Error",
         json: async () => ({ error: "Something went wrong" }),
       })
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Server Error",
+        json: async () => ({ error: "Something went wrong" }),
+      })
 
       const error = await api.getStorms().catch((e) => e)
       expect(error).toBeInstanceOf(ApiError)
@@ -511,6 +542,7 @@ metric3 1.2e-3
     })
 
     it("should throw Error on network failure", async () => {
+      ;(global.fetch as any).mockRejectedValueOnce(new TypeError("Failed to fetch"))
       ;(global.fetch as any).mockRejectedValueOnce(new TypeError("Failed to fetch"))
 
       try {

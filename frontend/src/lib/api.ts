@@ -15,6 +15,8 @@ import type {
 } from "@/types/storm"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+const MAX_RETRIES = 1
+const RETRY_BASE_MS = 500
 
 /**
  * Custom error class for API failures.
@@ -30,48 +32,80 @@ export class ApiError extends Error {
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 /**
  * Type-safe HTTP request wrapper.
- * Handles JSON serialization, error parsing, and timeout.
+ * Handles JSON serialization, error parsing, timeout,
+ * and automatic retry on 5xx with exponential backoff.
  *
- * @throws {ApiError} On HTTP error (4xx, 5xx)
+ * @throws {ApiError} On HTTP error (4xx, 5xx after retry)
  * @throws {Error} On network failure or malformed JSON
  */
 async function request<T>(
   path: string,
   init?: RequestInit,
+  retries = MAX_RETRIES,
 ): Promise<T> {
   const url = `${BASE_URL}${path}`
 
-  try {
-    const response = await fetch(url, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...init?.headers,
-      },
-    })
+  let lastError: Error | null = null
 
-    if (!response.ok) {
-      let message = response.statusText
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          ...init?.headers,
+        },
+      })
 
-      try {
-        const body = await response.json()
-        message = body.detail ?? body.message ?? response.statusText
-      } catch {
-        // Malformed error response — use status text
+      if (!response.ok) {
+        let message = response.statusText
+
+        try {
+          const body = await response.json()
+          message = body.detail ?? body.message ?? response.statusText
+        } catch {
+          // Malformed error response — use status text
+        }
+
+        const apiError = new ApiError(response.status, message)
+
+        // Retry on 5xx
+        if (response.status >= 500 && attempt < retries) {
+          lastError = apiError
+          await delay(RETRY_BASE_MS * Math.pow(2, attempt))
+          continue
+        }
+
+        throw apiError
       }
 
-      throw new ApiError(response.status, message)
-    }
+      return await response.json()
+    } catch (err) {
+      if (err instanceof ApiError) {
+        lastError = err
+        // Already retried above, don't retry again
+        throw err
+      }
 
-    return await response.json()
-  } catch (err) {
-    // Re-throw ApiError as-is, wrap other errors
-    if (err instanceof ApiError) throw err
-    if (err instanceof Error) throw err
-    throw new Error(`Request failed: ${String(err)}`)
+      // Network error — retry
+      if (attempt < retries) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        await delay(RETRY_BASE_MS * Math.pow(2, attempt))
+        continue
+      }
+
+      if (err instanceof Error) throw err
+      throw new Error(`Request failed: ${String(err)}`)
+    }
   }
+
+  throw lastError ?? new Error("Request failed")
 }
 
 /**
@@ -150,11 +184,36 @@ export const api = {
    */
   getMetrics: async (): Promise<string> => {
     const url = `${BASE_URL}/metrics`
-    const response = await fetch(url)
-    if (!response.ok) {
-      throw new ApiError(response.status, `Metrics fetch failed: ${response.statusText}`)
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(url)
+        if (!response.ok) {
+          const apiError = new ApiError(
+            response.status,
+            `Metrics fetch failed: ${response.statusText}`
+          )
+          if (response.status >= 500 && attempt < MAX_RETRIES) {
+            lastError = apiError
+            await delay(RETRY_BASE_MS * Math.pow(2, attempt))
+            continue
+          }
+          throw apiError
+        }
+        return await response.text()
+      } catch (err) {
+        if (err instanceof ApiError) throw err
+        if (attempt < MAX_RETRIES) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+          await delay(RETRY_BASE_MS * Math.pow(2, attempt))
+          continue
+        }
+        throw err
+      }
     }
-    return response.text()
+
+    throw lastError ?? new Error("Metrics fetch failed")
   },
 }
 

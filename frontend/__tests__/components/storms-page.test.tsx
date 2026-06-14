@@ -14,6 +14,12 @@ vi.mock("next/link", () => ({
   ),
 }))
 
+const mockAddToast = vi.fn()
+vi.mock("@/components/Toast", () => ({
+  ToastProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useToast: () => ({ addToast: mockAddToast, dismissToast: vi.fn() }),
+}))
+
 const mockGetStorms = vi.fn()
 vi.mock("@/lib/api", () => ({
   api: {

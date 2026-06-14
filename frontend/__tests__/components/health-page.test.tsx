@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor, act } from "@testing-library/react"
 import HealthPage from "@/app/dashboard/health/page"
 
+const mockAddToast = vi.fn()
+vi.mock("@/components/Toast", () => ({
+  ToastProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useToast: () => ({ addToast: mockAddToast, dismissToast: vi.fn() }),
+}))
+
 const mockGetHealth = vi.fn()
 const mockGetHealthReady = vi.fn()
 const mockGetMetrics = vi.fn()
