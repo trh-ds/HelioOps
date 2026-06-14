@@ -24,7 +24,9 @@ class AdvisoryPort(ABC):
 
 class VerificationPort(ABC):
     @abstractmethod
-    def verify(self, advisory: Any, storm_event: dict, impact: dict | None = None) -> tuple[Any, Any]:
+    def verify(
+        self, advisory: Any, storm_event: dict, impact: dict | None = None
+    ) -> tuple[Any, Any]:
         """Verify an advisory against deterministic rulebooks.
 
         Returns (VerifiedAdvisory, ProvenanceTrace).

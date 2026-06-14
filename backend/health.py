@@ -51,6 +51,7 @@ health_collector = _HealthCollector()
 def _check_detection() -> bool:
     try:
         from cv.detect import STORM_CONFIGS
+
         return len(STORM_CONFIGS) > 0
     except Exception:
         return False
@@ -59,6 +60,7 @@ def _check_detection() -> bool:
 def _check_ml() -> bool:
     try:
         from ML_after_CV.inference import _MODELS, _load_models
+
         _load_models()
         return len(_MODELS) >= 6
     except Exception:
@@ -68,6 +70,7 @@ def _check_ml() -> bool:
 def _check_genai() -> bool:
     try:
         from genai.impact_router import route_storm
+
         return True
     except Exception:
         return False
@@ -125,7 +128,9 @@ def record_pipeline_error():
 def record_pipeline_duration(seconds: float):
     _requester_metrics["pipeline_duration_seconds"].append(seconds)
     if len(_requester_metrics["pipeline_duration_seconds"]) > 1000:
-        _requester_metrics["pipeline_duration_seconds"] = _requester_metrics["pipeline_duration_seconds"][-500:]
+        _requester_metrics["pipeline_duration_seconds"] = _requester_metrics[
+            "pipeline_duration_seconds"
+        ][-500:]
 
 
 def record_detection_request():

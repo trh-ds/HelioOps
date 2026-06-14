@@ -20,6 +20,7 @@ class MLPredictionAdapter(PredictionPort):
 
     def predict(self, storm_dict: dict) -> Any:
         from ML_after_CV.inference import predict
+
         result = predict(storm_dict)
         self._models_loaded = True
         log.info(
@@ -31,13 +32,16 @@ class MLPredictionAdapter(PredictionPort):
 
     async def predict_async(self, storm_dict: dict) -> Any:
         import asyncio
+
         return await asyncio.to_thread(self.predict, storm_dict)
 
     def is_available(self) -> bool:
         try:
             from ML_after_CV.inference import _load_models
+
             _load_models()
             from ML_after_CV.inference import _MODELS
+
             return len(_MODELS) >= 6
         except Exception:
             return False

@@ -39,9 +39,19 @@ log = get_logger("backend.app")
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.middleware import (
+    SecurityHeadersMiddleware,
+    RequestIDMiddleware,
+    check_rate_limit,
+    validate_storm_id,
+)
+
 from backend.adapters.detection_adapter import CVDetectionAdapter
 from backend.adapters.prediction_adapter import MLPredictionAdapter
-from backend.adapters.advisory_adapter import GenAIAdvisoryAdapter, GenAIVerificationAdapter
+from backend.adapters.advisory_adapter import (
+    GenAIAdvisoryAdapter,
+    GenAIVerificationAdapter,
+)
 from backend.adapters.repository_adapter import InMemoryResultRepository
 from backend.adapters.schema_adapter import adapt_storm_event
 from backend.health import router as health_router
@@ -65,9 +75,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIDMiddleware)
 
 app.include_router(health_router)
 
@@ -84,11 +96,24 @@ def _available_storms() -> list[str]:
 
 @app.post("/api/detect/{storm_id}", response_model=PipelineResult)
 async def detect_storm(storm_id: str):
+    if not validate_storm_id(storm_id):
+        raise HTTPException(
+            status_code=400, detail=f"Invalid storm_id format: {storm_id}"
+        )
+    if not check_rate_limit(storm_id):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit: wait 30s between pipeline runs for this storm",
+        )
+
     start = time.monotonic()
     record_pipeline_request()
     available = _available_storms()
     if storm_id not in available:
-        raise HTTPException(status_code=404, detail=f"Unknown storm_id '{storm_id}'. Available: {available}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown storm_id '{storm_id}'. Available: {available}",
+        )
 
     try:
         result = await run_full_pipeline(storm_id)
@@ -99,7 +124,9 @@ async def detect_storm(storm_id: str):
 
     duration = time.monotonic() - start
     record_pipeline_duration(duration)
-    log.info("pipeline_completed", storm_id=storm_id, duration_seconds=round(duration, 3))
+    log.info(
+        "pipeline_completed", storm_id=storm_id, duration_seconds=round(duration, 3)
+    )
 
     if not result.cv_event:
         record_pipeline_error()
@@ -132,7 +159,9 @@ async def list_storms():
 async def get_advisory_endpoint(advisory_id: str):
     data = result_repo.get_advisory(advisory_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Advisory '{advisory_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Advisory '{advisory_id}' not found"
+        )
     return data
 
 
@@ -165,6 +194,12 @@ _ws_manager = ConnectionManager()
 
 @app.websocket("/ws/stream")
 async def websocket_stream(ws: WebSocket):
+    origin = ws.headers.get("origin", "")
+    allowed = settings.CORS_ORIGINS
+    if origin and not any(origin.startswith(o) for o in allowed):
+        await ws.close(code=4003, reason="Origin not allowed")
+        return
+
     await _ws_manager.connect(ws)
     try:
         while True:
@@ -172,27 +207,55 @@ async def websocket_stream(ws: WebSocket):
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
-                await _ws_manager.send(ws, {"event": "error", "message": "Invalid JSON"})
+                await _ws_manager.send(
+                    ws, {"event": "error", "message": "Invalid JSON"}
+                )
                 continue
 
             action = msg.get("action")
             storm_id = msg.get("storm_id")
 
             if action == "run_pipeline" and storm_id:
+                if not validate_storm_id(storm_id):
+                    await _ws_manager.send(
+                        ws,
+                        {
+                            "event": "error",
+                            "message": f"Invalid storm_id format: {storm_id}",
+                        },
+                    )
+                    continue
+
                 available = _available_storms()
                 if storm_id not in available:
-                    await _ws_manager.send(ws, {
-                        "event": "error",
-                        "message": f"Unknown storm_id. Available: {available}",
-                    })
+                    await _ws_manager.send(
+                        ws,
+                        {
+                            "event": "error",
+                            "message": f"Unknown storm_id. Available: {available}",
+                        },
+                    )
+                    continue
+
+                if not check_rate_limit(storm_id):
+                    await _ws_manager.send(
+                        ws,
+                        {
+                            "event": "error",
+                            "message": "Rate limit: wait 30s between pipeline runs for this storm",
+                        },
+                    )
                     continue
 
                 async for event in stream_full_pipeline(storm_id):
                     await _ws_manager.send(ws, event)
             else:
-                await _ws_manager.send(ws, {
-                    "event": "error",
-                    "message": "Send {\"action\": \"run_pipeline\", \"storm_id\": \"...\"}",
-                })
+                await _ws_manager.send(
+                    ws,
+                    {
+                        "event": "error",
+                        "message": 'Send {"action": "run_pipeline", "storm_id": "..."}',
+                    },
+                )
     except WebSocketDisconnect:
         _ws_manager.disconnect(ws)
