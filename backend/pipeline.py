@@ -162,7 +162,8 @@ async def stream_full_pipeline(
     Streaming variant — yields events at each pipeline stage.
     Uses genai.stream_pipeline() for real-time advisory generation events.
     """
-    now = lambda: datetime.now(timezone.utc).isoformat()
+    def now() -> str:
+        return datetime.now(timezone.utc).isoformat()
 
     # ── Step 1: Detection ────────────────────────────────────────────────
     yield {"event": "pipeline.stage", "stage": "detection", "status": "started", "timestamp": now()}

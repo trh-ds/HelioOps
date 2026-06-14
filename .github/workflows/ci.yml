@@ -17,7 +17,7 @@ jobs:
       - name: Install linting tools
         run: pip install ruff
       - name: Ruff check
-        run: ruff check backend/ --ignore=E501,F401,F403 || true
+        run: ruff check backend/ --ignore=E501,F401,F403,E402 || true
       - name: Ruff format check
         run: ruff format --check backend/ || true
 

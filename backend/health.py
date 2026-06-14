@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 
 router = APIRouter(tags=["monitoring"])
 
@@ -96,12 +96,14 @@ async def liveness():
 async def readiness():
     checks = health_collector.run()
     all_healthy = all(checks.values())
-    status_code = 200 if all_healthy else 503
-    return {
-        "status": "ready" if all_healthy else "degraded",
-        "checks": checks,
-        "version": _ARTIFACT_VERSION,
-    }, status_code
+    return JSONResponse(
+        status_code=200 if all_healthy else 503,
+        content={
+            "status": "ready" if all_healthy else "degraded",
+            "checks": checks,
+            "version": _ARTIFACT_VERSION,
+        },
+    )
 
 
 _requester_metrics = {
