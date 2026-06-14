@@ -16,7 +16,7 @@ Solar Imagery (FITS)
            ▼
 ┌──────────────────────┐
 │  Layer 2: ML Impact   │  LightGBM quantile regression (6 models)
-│  ML_after_CV/         │  → GPS error 12.8m [6.6–13.3], HF blackout 90% [66–93%]
+│  ML_after_CV/         │  → GPS error ± 95% CI, HF blackout probability ± 95% CI
 └──────────┬───────────┘
            │
            ▼
@@ -36,6 +36,12 @@ Solar Imagery (FITS)
 ┌──────────────────────┐
 │  Layer 4: Delivery    │  FastAPI REST + WebSocket, Next.js dashboard
 │  backend/ + frontend/ │  → Real-time streaming to operators
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│  Supabase PostgreSQL  │  Persistent storage for storms, advisories,
+│  supabase/            │  provenance traces, pipeline runs
 └──────────────────────┘
 ```
 
@@ -47,8 +53,9 @@ pip install -r requirements-backend.txt
 pip install -r requirements-genai.txt
 pip install -r requirements-data.txt
 
-# 2. Set Groq API key (get free key at https://console.groq.com/keys)
-echo "GROQ_API_KEY=gsk_your_key" > .env
+# 2. Configure environment
+cp .env.example .env
+# Edit .env — set GROQ_API_KEY (get free key at https://console.groq.com/keys)
 
 # 3. Start backend
 python -m backend.run
@@ -56,8 +63,16 @@ python -m backend.run
 # 4. Open Swagger docs
 # http://localhost:8000/docs
 
-# 5. Run pipeline
+# 5. Run pipeline for a demo storm
 curl -X POST http://localhost:8000/api/detect/2024-10-G4
+```
+
+### Docker (recommended)
+
+```bash
+docker compose up --build
+# Backend: http://localhost:8000
+# Frontend: http://localhost:3000
 ```
 
 ## Project Structure
@@ -65,48 +80,53 @@ curl -X POST http://localhost:8000/api/detect/2024-10-G4
 ```
 HelioOps/
 ├── cv/                         # Layer 1: Heliospheric Detection
-│   ├── detect.py               # Main entry — deterministic replay
+│   ├── detect.py               # Main entry — deterministic replay + live mode
 │   ├── preprocessing.py        # FITS → running-difference images
 │   ├── threshold_detector.py   # 9-step deterministic CME detector
 │   ├── cache_fits.py           # CCOR-1 S3 + SOHO LASCO cache
 │   ├── fusion.py               # StormEvent contract + fuse()
 │   ├── donki_client.py         # NASA DONKI CME physics API
 │   ├── flare_classifier.py     # GOES XRS → R-scale classification
-│   └── l1_client.py            # DSCOVR L1 solar wind + ETA
+│   ├── l1_client.py            # DSCOVR L1 solar wind + ETA
+│   └── README.md
 │
 ├── ML_after_CV/                # Layer 2: Impact Intelligence
-│   ├── inference.py            # LightGBM inference with 95% CIs
+│   ├── inference.py            # Production — LightGBM inference with 95% CIs
 │   ├── 01_data_generation_eda.py
 │   ├── 02_train_and_tune.py    # Quantile regression training
 │   ├── 03_anchor_test.py       # G5 black-swan validation
-│   └── checkpoints/            # 6 trained models (gps + hf × 3 quantiles)
+│   ├── checkpoints/            # 6 trained models (gps + hf × 3 quantiles)
+│   └── README.md
 │
 ├── genai/                      # Layer 3: Verified Advisory
 │   ├── orchestrator.py         # AgentScope parallel fan-out
 │   ├── impact_router.py        # Deterministic G-scale → severity matrix
-│   ├── retriever.py            # ChromaDB RAG with MMR reranking
-│   ├── verifier.py             # Zero-LLM rule engine
+│   ├── retriever.py            # ChromaDB RAG (BGE-small, cosine similarity)
+│   ├── verifier.py             # Zero-LLM rule engine (ICAO, NERC, GMDSS)
 │   ├── guardrails.py           # Schema validation + hallucination detection
 │   ├── contracts.py            # VerifiedAdvisory + ProvenanceTrace
-│   ├── models.py               # Pydantic schemas
+│   ├── models.py               # Pydantic schemas + enums
 │   ├── config.py               # All config knobs
 │   ├── agents/                 # Per-industry agents (aviation, grid, maritime, telecom)
-│   └── prompts/                # Industry-specific system prompts
+│   ├── prompts/                # Industry-specific system prompts
+│   └── README.md
 │
 ├── embeddings/                 # RAG Infrastructure
-│   ├── embedder.py             # BGE-small-en-v1.5 + Redis cache
-│   ├── retrieval.py            # Query + MMR reranking
+│   ├── embedder.py             # BGE-small-en-v1.5 embeddings
+│   ├── retrieval.py            # Query + cosine similarity filtering
+│   ├── chunker.py              # Token-aware document chunking (512 tok, 64 overlap)
 │   ├── ingest_aviation.py      # NAT Doc 007 → ChromaDB
 │   ├── ingest_grid.py          # NERC TPL-007-4 → ChromaDB
 │   ├── ingest_maritime.py      # IMO GMDSS 2019 → ChromaDB
-│   └── ingest_impact_matrix.py # NOAA/NESDIS → ChromaDB
+│   ├── ingest_impact_matrix.py # NOAA/NESDIS → ChromaDB
+│   └── README.md
 │
 ├── backend/                    # Layer 4: FastAPI Server
 │   ├── app.py                  # REST + WebSocket + health + metrics
 │   ├── pipeline.py             # run_full_pipeline() — chains all layers
 │   ├── adapter.py              # cv.StormEvent → genai.StormEvent bridge
 │   ├── config.py               # Pydantic Settings (env vars + .env)
-│   ├── logging.py              # Structured logging (structlog)
+│   ├── logging.py              # Structured JSON logging (structlog)
 │   ├── health.py               # /health, /health/ready, /health/live, /metrics
 │   ├── ports/                  # Hexagonal architecture — abstract interfaces
 │   │   ├── detection.py        # DetectionPort
@@ -117,13 +137,18 @@ HelioOps/
 │   │   ├── detection_adapter.py
 │   │   ├── prediction_adapter.py
 │   │   ├── advisory_adapter.py
-│   │   ├── repository_adapter.py
-│   │   └── schema_adapter.py   # Anti-corruption layer
+│   │   ├── repository_adapter.py  # In-memory store (default)
+│   │   └── schema_adapter.py      # Anti-corruption layer
 │   ├── run.py                  # uvicorn entry point
-│   └── README.md               # Backend API documentation
+│   └── README.md
 │
 ├── frontend/                   # Next.js 14 Dashboard
-│   └── src/                    # React components + Tailwind
+│   └── src/                    # React components + Tailwind + Three.js
+│
+├── supabase/                   # Database Schema (Supabase PostgreSQL)
+│   ├── 001_schema.sql          # 4 enums + 8 tables + indexes + triggers
+│   ├── 002_rls.sql             # Row Level Security policies
+│   └── 003_seed.sql            # Demo storm data (G4 + G5)
 │
 ├── data/
 │   ├── chroma_db/              # ChromaDB persistence (5 collections)
@@ -136,30 +161,28 @@ HelioOps/
 ├── ml/stubs/                   # Pre-computed storm events (G4 + G5)
 ├── tests/                      # 64 tests (pytest)
 │   ├── test_option_c.py        # CV + fusion + detection tests (51)
-│   └── test_pipeline.py        # Backend pipeline tests (13)
+│   ├── test_pipeline.py        # Backend pipeline tests (13)
+│   └── README.md
 │
-├── .github/
-│   └── workflows/
-│       └── ci.yml              # Lint + test + build (backend + frontend)
-├── k8s/                        # Kubernetes manifests
-│   ├── base/                   # Deployment, Service, ConfigMap, Ingress, ServiceMonitor
-│   ├── staging/                # Staging overlay (debug-friendly)
-│   └── production/             # Production overlay (hardened, 3 replicas)
-├── infra/                      # Terraform IaC
-│   ├── modules/                # Reusable VPC + EKS modules
-│   └── environments/           # Staging + production tfvars
-├── argocd/                     # ArgoCD application manifests
-├── chaos/                      # Chaos Mesh experiments
-├── runbooks/                   # Operational playbooks
-├── .env.example                # Environment variable template
-├── Dockerfile.backend          # Multi-stage Python backend image
-├── Dockerfile.frontend         # Multi-stage Next.js frontend image
+├── docs/
+│   ├── archived/               # Legacy design docs
+│   └── ml_research/            # EDA plots from ML training
+│
+├── .github/workflows/ci.yml    # CI: lint + test + build + Docker
+├── k8s/                        # Kubernetes manifests (base, staging, production)
+├── infra/                      # Terraform IaC (VPC + EKS modules)
+├── argocd/                     # ArgoCD GitOps application manifests
+├── chaos/                      # Chaos Mesh experiments (staging only)
+├── runbooks/                   # Operational playbooks (4 scenarios)
+│
+├── Dockerfile.backend          # Multi-stage Python 3.12 image
+├── Dockerfile.frontend         # Multi-stage Node 20 image
 ├── docker-compose.yml          # Local dev: backend + frontend
-├── .env                        # GROQ_API_KEY (not committed)
+├── .env.example                # Environment variable template
 ├── requirements-backend.txt    # fastapi, uvicorn, structlog, pydantic-settings
-├── requirements-genai.txt      # agentscope, langchain, groq
-├── requirements-data.txt       # chromadb, sentence-transformers
-└── .gitignore
+├── requirements-genai.txt      # agentscope, langchain-groq, chromadb
+├── requirements-data.txt       # sentence-transformers, tiktoken
+└── ARCHITECTURE_CHANGES.md     # DevOps architecture decisions
 ```
 
 ## API Endpoints
@@ -171,105 +194,97 @@ HelioOps/
 | GET | `/api/advisory/{advisory_id}` | Verified advisory + provenance trace |
 | GET | `/api/result/{storm_id}` | Full pipeline result |
 | WS | `/ws/stream` | Real-time pipeline event streaming |
-| GET | `/health` | Health check |
-| GET | `/health/ready` | Readiness (checks all dep layers) |
+| GET | `/health` | Basic health check |
+| GET | `/health/ready` | Readiness (checks ML, CV, GenAI layers) |
 | GET | `/health/live` | Liveness (process check) |
 | GET | `/metrics` | Prometheus-compatible metrics |
 
-## Infrastructure
+## Database (Supabase)
 
-### Docker
+8 PostgreSQL tables with Row Level Security:
 
+| Table | Description |
+|-------|-------------|
+| `storm_events` | CV detection output (JSONB for CME, flare, L1 wind) |
+| `impact_predictions` | ML quantile regression results (GPS + HF with 95% CIs) |
+| `advisories` | GenAI advisory output per industry |
+| `action_items` | Numbered actions within each advisory |
+| `verified_advisories` | Post-verification advisory with rule check results |
+| `verifier_checks` | Individual rule check results (pass/blocked) |
+| `provenance_traces` | 6-step audit chain per advisory |
+| `pipeline_runs` | Denormalized pipeline execution summary |
+
+Setup:
 ```bash
-# Build and run all services
-docker compose up --build
-
-# Backend only
-docker build -f Dockerfile.backend -t helioops-backend .
-
-# Frontend only
-docker build -f Dockerfile.frontend -t helioops-frontend .
+# Run in Supabase SQL Editor (in order):
+supabase/001_schema.sql    # Tables + indexes + triggers
+supabase/002_rls.sql       # RLS policies
+supabase/003_seed.sql      # Demo data (2 storms)
 ```
-
-### Kubernetes
-
-```bash
-# Apply base manifests
-kubectl apply -f k8s/base/
-
-# Staging overlay
-kubectl apply -k k8s/staging/
-
-# Production overlay
-kubectl apply -k k8s/production/
-```
-
-### Terraform (AWS EKS)
-
-```bash
-# Stage: plan + apply
-cd infra/environments/staging
-terraform init
-terraform plan
-terraform apply
-
-# Production: plan + apply
-cd infra/environments/production
-terraform init
-terraform plan
-terraform apply
-```
-
-### ArgoCD GitOps
-
-```bash
-kubectl apply -f argocd/backend-staging.yaml
-kubectl apply -f argocd/backend-production.yaml
-```
-
-### Monitoring
-
-- **Metrics**: `GET /metrics` — Prometheus-compatible counters and gauges
-- **Health**: `GET /health/ready` — readiness with dependency checks
-- **Runbooks**: `runbooks/` — operational playbooks for alerts
-- **Chaos**: `chaos/` — Chaos Mesh experiments for staging
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `GROQ_API_KEY` | Yes | — | Groq API key for LLM generation |
+| `GROQ_API_KEY` | **Yes** | — | Groq API key for LLM generation |
 | `GROQ_MODEL` | No | `llama-3.3-70b-versatile` | Groq model ID |
 | `GROQ_MAX_TOKENS` | No | `2048` | Max generation tokens |
+| `GROQ_CHECKER_MODEL` | No | `llama-3.1-8b-instant` | Self-check LLM (lighter = fewer tokens) |
+| `MAX_PROMPT_TOKENS` | No | `4000` | Token budget cap for RAG context |
 | `HELIOOPS_HOST` | No | `0.0.0.0` | Server bind address |
 | `HELIOOPS_PORT` | No | `8000` | Server port |
 | `HELIOOPS_LOG_LEVEL` | No | `INFO` | Log level (DEBUG/INFO/WARNING/ERROR) |
 | `HELIOOPS_LOG_FORMAT` | No | `json` | Log format (json/console) |
 | `HELIOOPS_WORKERS` | No | `1` | Uvicorn worker count |
 | `HELIOOPS_RELOAD` | No | `true` | Hot reload (dev only) |
-| `HELIOOPS_CHROMA_PERSIST_PATH` | No | `data/chroma_db` | ChromaDB path |
-| `HELIOOPS_ML_CHECKPOINT_DIR` | No | `ML_after_CV/checkpoints` | Model checkpoints path |
+| `HELIOOPS_CHROMA_PERSIST_PATH` | No | `data/chroma_db` | ChromaDB persistence path |
+| `HELIOOPS_ML_CHECKPOINT_DIR` | No | `ML_after_CV/checkpoints` | ML model checkpoints path |
 
 ## Demo Storms
 
-| Storm | Date | G-Scale | CME Speed | GPS Error | HF Blackout |
-|-------|------|---------|-----------|-----------|-------------|
-| 2024-10-G4 | Oct 2024 | G4 (Kp=8.3) | 1480 km/s | 12.8m | 90% |
-| 2024-05-G5 | May 2024 | G5 (Kp=9.0) | 1800 km/s | 20.8m | 92% |
+| Storm | Date | G-Scale | CME Speed | Bz (nT) | Flare | Industries Triggered |
+|-------|------|---------|-----------|---------|-------|---------------------|
+| `2024-10-G4` | Oct 2024 | G4 (Kp=8.3) | 1480 km/s | -28 | X1.8 / R3 | aviation, grid, maritime, telecom |
+| `2024-05-G5` | May 2024 | G5 (Kp=9.0) | 2200 km/s | -46 | X5.8 / R5 | aviation, grid, maritime, telecom |
 
-## Key Design Decisions
+## Infrastructure
 
-1. **Deterministic detector (Option C)** — Threshold algorithm on running-difference frames instead of CNN. Byte-identical output, no labeled data needed.
-2. **DONKI for physics** — CME speed/width from NASA's human-reviewed database. More defensible than learned regression.
-3. **AgentScope over LangGraph** — Transparent message protocol, parallel asyncio.gather, registry-based dispatch.
-4. **10-layer anti-hallucination** — RAG grounding, citation enforcement, severity consistency, LLM self-check, deterministic verifier.
-5. **Bridge, don't rewrite** — Backend bridges existing layers without modifying CV, GenAI, or embeddings code.
+### Docker
+```bash
+docker compose up --build              # Full stack
+docker build -f Dockerfile.backend .   # Backend only
+docker build -f Dockerfile.frontend .  # Frontend only
+```
+
+### Kubernetes
+```bash
+kubectl apply -k k8s/staging/         # Staging overlay
+kubectl apply -k k8s/production/      # Production (3 replicas, hardened)
+```
+
+### Terraform (AWS EKS)
+```bash
+cd infra/environments/staging && terraform init && terraform apply
+cd infra/environments/production && terraform init && terraform apply
+```
+
+### ArgoCD GitOps
+```bash
+kubectl apply -f argocd/backend-staging.yaml
+kubectl apply -f argocd/backend-production.yaml
+```
+
+### Monitoring
+- **Metrics**: `GET /metrics` — Prometheus counters (request count, latency p99, errors)
+- **Health**: `GET /health/ready` — dependency checks (ML models, CV detection, GenAI)
+- **Runbooks**: `runbooks/` — playbooks for high-error-rate, high-latency, detection-failure, groq-outage
+- **Chaos**: `chaos/` — Chaos Mesh experiments (CPU stress, network delay, pod kill)
 
 ## Testing
 
 ```bash
 # All tests (64 total)
-python -m pytest tests/test_option_c.py tests/test_pipeline.py -v
+python -m pytest tests/ -v
 
 # CV + detection only (51 tests)
 python -m pytest tests/test_option_c.py -v
@@ -278,16 +293,18 @@ python -m pytest tests/test_option_c.py -v
 python -m pytest tests/test_pipeline.py -v
 ```
 
-## Environment Variables
+## Key Design Decisions
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GROQ_API_KEY` | Yes | — | Groq API key for LLM generation |
-| `GROQ_MODEL` | No | `llama-3.3-70b-versatile` | Groq model ID |
-| `GROQ_TEMPERATURE` | No | `0.1` | Near-deterministic generation |
+1. **Deterministic detector (Option C)** — Threshold algorithm on running-difference frames instead of CNN. Byte-identical output, no labeled data needed, no GPU required.
+2. **NASA DONKI for physics** — CME speed/width from NASA's human-reviewed database. More defensible than learned regression.
+3. **AgentScope over LangGraph** — Transparent message protocol, parallel asyncio.gather fan-out, registry-based agent dispatch.
+4. **10-layer anti-hallucination** — RAG grounding, citation enforcement, severity consistency, LLM self-check, deterministic verifier, confidence scoring, safety flags.
+5. **Token-budgeted prompts** — RAG context capped at 4000 tokens, self-check uses lighter 8B model to stay within Groq rate limits.
+6. **Bridge, don't rewrite** — Backend bridges existing layers via schema adapter without modifying CV, GenAI, or embeddings code.
+7. **Hexagonal architecture** — Ports and adapters pattern for testability; swap in-memory store for Supabase without touching pipeline code.
 
 ## Team
 
 - **Neal** — CV Detection (Layer 1) + ML Impact Models (Layer 2)
-- **Priyanshu** — GenAI Advisory (Layer 3) + Backend Pipeline
-- **Tirth** — Frontend Dashboard (Layer 4) + Deployment
+- **Priyanshu** — GenAI Advisory (Layer 3) + Backend Pipeline + Database
+- **Tirth** — Frontend Dashboard (Layer 4) + DevOps + Deployment
