@@ -1,0 +1,28 @@
+# Staging overlay — 2 replicas, debug-friendly
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helioops-backend
+  labels:
+    app: helioops
+    component: backend
+    env: staging
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: HELIOOPS_LOG_LEVEL
+              value: "DEBUG"
+            - name: HELIOOPS_LOG_FORMAT
+              value: "console"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

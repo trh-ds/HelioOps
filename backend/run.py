@@ -1,6 +1,13 @@
 """Launch the HelioOps backend server."""
 
-import uvicorn
+from backend.config import settings
 
 if __name__ == "__main__":
-    uvicorn.run("backend.app:app", host="0.0.0.0", port=8000, reload=True)
+    import uvicorn
+    uvicorn.run(
+        "backend.app:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.RELOAD,
+        workers=settings.WORKERS,
+    )

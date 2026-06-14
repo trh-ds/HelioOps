@@ -102,9 +102,23 @@ HelioOps/
 │   └── ingest_impact_matrix.py # NOAA/NESDIS → ChromaDB
 │
 ├── backend/                    # Layer 4: FastAPI Server
-│   ├── app.py                  # REST + WebSocket endpoints
+│   ├── app.py                  # REST + WebSocket + health + metrics
 │   ├── pipeline.py             # run_full_pipeline() — chains all layers
 │   ├── adapter.py              # cv.StormEvent → genai.StormEvent bridge
+│   ├── config.py               # Pydantic Settings (env vars + .env)
+│   ├── logging.py              # Structured logging (structlog)
+│   ├── health.py               # /health, /health/ready, /health/live, /metrics
+│   ├── ports/                  # Hexagonal architecture — abstract interfaces
+│   │   ├── detection.py        # DetectionPort
+│   │   ├── prediction.py       # PredictionPort
+│   │   ├── advisory.py         # AdvisoryPort, VerificationPort
+│   │   └── repository.py       # ResultRepository
+│   ├── adapters/               # Concrete implementations of ports
+│   │   ├── detection_adapter.py
+│   │   ├── prediction_adapter.py
+│   │   ├── advisory_adapter.py
+│   │   ├── repository_adapter.py
+│   │   └── schema_adapter.py   # Anti-corruption layer
 │   ├── run.py                  # uvicorn entry point
 │   └── README.md               # Backend API documentation
 │
@@ -124,8 +138,25 @@ HelioOps/
 │   ├── test_option_c.py        # CV + fusion + detection tests (51)
 │   └── test_pipeline.py        # Backend pipeline tests (13)
 │
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # Lint + test + build (backend + frontend)
+├── k8s/                        # Kubernetes manifests
+│   ├── base/                   # Deployment, Service, ConfigMap, Ingress, ServiceMonitor
+│   ├── staging/                # Staging overlay (debug-friendly)
+│   └── production/             # Production overlay (hardened, 3 replicas)
+├── infra/                      # Terraform IaC
+│   ├── modules/                # Reusable VPC + EKS modules
+│   └── environments/           # Staging + production tfvars
+├── argocd/                     # ArgoCD application manifests
+├── chaos/                      # Chaos Mesh experiments
+├── runbooks/                   # Operational playbooks
+├── .env.example                # Environment variable template
+├── Dockerfile.backend          # Multi-stage Python backend image
+├── Dockerfile.frontend         # Multi-stage Next.js frontend image
+├── docker-compose.yml          # Local dev: backend + frontend
 ├── .env                        # GROQ_API_KEY (not committed)
-├── requirements-backend.txt    # fastapi, uvicorn
+├── requirements-backend.txt    # fastapi, uvicorn, structlog, pydantic-settings
 ├── requirements-genai.txt      # agentscope, langchain, groq
 ├── requirements-data.txt       # chromadb, sentence-transformers
 └── .gitignore
@@ -141,7 +172,83 @@ HelioOps/
 | GET | `/api/result/{storm_id}` | Full pipeline result |
 | WS | `/ws/stream` | Real-time pipeline event streaming |
 | GET | `/health` | Health check |
-| GET | `/docs` | Swagger interactive docs |
+| GET | `/health/ready` | Readiness (checks all dep layers) |
+| GET | `/health/live` | Liveness (process check) |
+| GET | `/metrics` | Prometheus-compatible metrics |
+
+## Infrastructure
+
+### Docker
+
+```bash
+# Build and run all services
+docker compose up --build
+
+# Backend only
+docker build -f Dockerfile.backend -t helioops-backend .
+
+# Frontend only
+docker build -f Dockerfile.frontend -t helioops-frontend .
+```
+
+### Kubernetes
+
+```bash
+# Apply base manifests
+kubectl apply -f k8s/base/
+
+# Staging overlay
+kubectl apply -k k8s/staging/
+
+# Production overlay
+kubectl apply -k k8s/production/
+```
+
+### Terraform (AWS EKS)
+
+```bash
+# Stage: plan + apply
+cd infra/environments/staging
+terraform init
+terraform plan
+terraform apply
+
+# Production: plan + apply
+cd infra/environments/production
+terraform init
+terraform plan
+terraform apply
+```
+
+### ArgoCD GitOps
+
+```bash
+kubectl apply -f argocd/backend-staging.yaml
+kubectl apply -f argocd/backend-production.yaml
+```
+
+### Monitoring
+
+- **Metrics**: `GET /metrics` — Prometheus-compatible counters and gauges
+- **Health**: `GET /health/ready` — readiness with dependency checks
+- **Runbooks**: `runbooks/` — operational playbooks for alerts
+- **Chaos**: `chaos/` — Chaos Mesh experiments for staging
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GROQ_API_KEY` | Yes | — | Groq API key for LLM generation |
+| `GROQ_MODEL` | No | `llama-3.3-70b-versatile` | Groq model ID |
+| `GROQ_MAX_TOKENS` | No | `2048` | Max generation tokens |
+| `HELIOOPS_HOST` | No | `0.0.0.0` | Server bind address |
+| `HELIOOPS_PORT` | No | `8000` | Server port |
+| `HELIOOPS_LOG_LEVEL` | No | `INFO` | Log level (DEBUG/INFO/WARNING/ERROR) |
+| `HELIOOPS_LOG_FORMAT` | No | `json` | Log format (json/console) |
+| `HELIOOPS_WORKERS` | No | `1` | Uvicorn worker count |
+| `HELIOOPS_RELOAD` | No | `true` | Hot reload (dev only) |
+| `HELIOOPS_CHROMA_PERSIST_PATH` | No | `data/chroma_db` | ChromaDB path |
+| `HELIOOPS_ML_CHECKPOINT_DIR` | No | `ML_after_CV/checkpoints` | Model checkpoints path |
 
 ## Demo Storms
 

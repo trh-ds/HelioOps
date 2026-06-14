@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helioops-frontend
+  labels:
+    app: helioops
+    component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: helioops
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: helioops
+        component: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/trh-ds/helioops-frontend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://helioops-backend:8000"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

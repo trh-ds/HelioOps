@@ -1,0 +1,15 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: backend-pod-kill-staging
+  namespace: staging
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces: [staging]
+    labelSelectors:
+      app: helioops
+      component: backend
+  scheduler:
+    cron: "@every 72h"

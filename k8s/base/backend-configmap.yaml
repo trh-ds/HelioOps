@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: helioops-backend-config
+data:
+  HELIOOPS_HOST: "0.0.0.0"
+  HELIOOPS_PORT: "8000"
+  HELIOOPS_WORKERS: "2"
+  HELIOOPS_RELOAD: "false"
+  HELIOOPS_CHROMA_PERSIST_PATH: "/app/data/chroma_db"
+  HELIOOPS_ML_CHECKPOINT_DIR: "/app/ML_after_CV/checkpoints"

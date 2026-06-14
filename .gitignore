@@ -44,6 +44,16 @@ frontend/.vercel/
 frontend/*.tsbuildinfo
 frontend/ezgif-664f0582ff119a0b-jpg.zip
 
+# Terraform state
+infra/**/.terraform/
+infra/**/terraform.tfstate
+infra/**/terraform.tfstate.backup
+infra/**/*.tfvars
+!infra/environments/*/terraform.tfvars.example
+
+# Docker local builds
+.docker/
+
 # opencode config
 .opencode/
 

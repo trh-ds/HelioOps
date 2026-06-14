@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helioops-backend
+  labels:
+    app: helioops
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: helioops
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: helioops
+        component: backend
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: "true"
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/trh-ds/helioops-backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: HELIOOPS_LOG_LEVEL
+              value: "INFO"
+            - name: HELIOOPS_LOG_FORMAT
+              value: "json"
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: helioops-secrets
+                  key: groq-api-key
+          envFrom:
+            - configMapRef:
+                name: helioops-backend-config
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: ml-checkpoints
+              mountPath: /app/ML_after_CV/checkpoints
+              readOnly: true
+      volumes:
+        - name: ml-checkpoints
+          persistentVolumeClaim:
+            claimName: ml-checkpoints-pvc

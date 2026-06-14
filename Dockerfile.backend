@@ -1,0 +1,38 @@
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+COPY requirements-backend.txt requirements-genai.txt requirements-data.txt ./
+
+RUN pip install --no-cache-dir --prefix=/install \
+    -r requirements-backend.txt \
+    -r requirements-genai.txt \
+    -r requirements-data.txt
+
+FROM python:3.12-slim
+
+LABEL org.opencontainers.image.title="helioops-backend"
+LABEL org.opencontainers.image.description="HelioOps space weather impact intelligence API"
+LABEL org.opencontainers.image.source="https://github.com/trh-ds/HelioOps"
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
+
+COPY backend/ backend/
+COPY cv/ cv/
+COPY genai/ genai/
+COPY ML_after_CV/ ML_after_CV/
+COPY embeddings/ embeddings/
+COPY ml/ ml/
+COPY tests/ tests/
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health/live || exit 1
+
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,19 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: backend-cpu-stress-staging
+  namespace: staging
+spec:
+  mode: one
+  selector:
+    namespaces: [staging]
+    labelSelectors:
+      app: helioops
+      component: backend
+  stressors:
+    cpu:
+      workers: 2
+      load: 80
+  duration: "5m"
+  scheduler:
+    cron: "@every 336h"
