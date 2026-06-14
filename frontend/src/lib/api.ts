@@ -177,7 +177,7 @@ export function parseMetrics(text: string): Map<string, number> {
     if (parts.length >= 2) {
       const key = parts[0]
       const value = parseFloat(parts[1])
-      if (!isNaN(value)) {
+      if (!isNaN(value) && isFinite(value)) {
         metrics.set(key, value)
       }
     }
