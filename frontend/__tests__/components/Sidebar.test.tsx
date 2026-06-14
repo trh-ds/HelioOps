@@ -4,7 +4,7 @@ import Sidebar from "@/components/dashboard/Sidebar"
 
 // Mock next/navigation
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/dashboard",
+  usePathname: () => "/dashboard/storms",
 }))
 
 // Mock next/link
@@ -41,7 +41,7 @@ describe("Sidebar", () => {
   it("links have correct hrefs", () => {
     render(<Sidebar />)
 
-    expect(screen.getByText("Storm List").closest("a")).toHaveAttribute("href", "/dashboard")
+    expect(screen.getByText("Storm List").closest("a")).toHaveAttribute("href", "/dashboard/storms")
     expect(screen.getByText("Pipeline").closest("a")).toHaveAttribute("href", "/dashboard/pipeline")
     expect(screen.getByText("Health").closest("a")).toHaveAttribute("href", "/dashboard/health")
     expect(screen.getByText("Back to Home").closest("a")).toHaveAttribute("href", "/")

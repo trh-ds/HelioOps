@@ -6,7 +6,7 @@ import type { StormsResponse } from "@/types/storm"
 import StormCard from "@/components/dashboard/StormCard"
 import { AlertTriangle, Loader2, Zap } from "lucide-react"
 
-export default function DashboardPage() {
+export default function StormsPage() {
   const [data, setData] = useState<StormsResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -37,17 +37,30 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-display font-bold text-white/90 tracking-tight">
-          Storms
+          Storm List
         </h2>
         <p className="text-sm text-white/40 font-body mt-1">
-          Available storms and completed pipeline results.
+          Select a storm to view details or run the pipeline.
         </p>
       </div>
 
       {loading && (
-        <div className="flex items-center gap-3 text-white/40 py-12">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          <span className="text-sm font-body">Loading storms...</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="rounded-xl p-5 border border-white/[0.06] bg-white/[0.02] animate-pulse"
+            >
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="h-4 w-28 rounded bg-white/[0.06]" />
+                <div className="h-4 w-8 rounded bg-white/[0.06]" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 w-full rounded bg-white/[0.04]" />
+                <div className="h-3 w-2/3 rounded bg-white/[0.04]" />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

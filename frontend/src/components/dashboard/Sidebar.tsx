@@ -7,7 +7,7 @@ import { LayoutDashboard, Activity, HeartPulse, Home, Menu, X } from "lucide-rea
 import clsx from "clsx"
 
 const navLinks = [
-  { href: "/dashboard", label: "Storm List", icon: LayoutDashboard },
+  { href: "/dashboard/storms", label: "Storm List", icon: LayoutDashboard },
   { href: "/dashboard/pipeline", label: "Pipeline", icon: Activity },
   { href: "/dashboard/health", label: "Health", icon: HeartPulse },
 ]
@@ -64,10 +64,7 @@ export default function Sidebar() {
         {/* Nav links */}
         <nav className="flex-1 py-4 px-3 space-y-1">
           {navLinks.map(({ href, label, icon: Icon }) => {
-            const isActive =
-              href === "/dashboard"
-                ? pathname === "/dashboard"
-                : pathname.startsWith(href)
+            const isActive = pathname.startsWith(href)
 
             return (
               <Link
