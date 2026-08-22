@@ -19,18 +19,12 @@ from __future__ import annotations
 
 import json
 import math
-import sys
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import cv2
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from cv.threshold_detector import (
+from backend.cv.image_threshold_algorithm.threshold_detector import (
     detect_cme_in_frame,
     detect_cme_in_sequence,
     _annular_mask,
@@ -40,9 +34,10 @@ from cv.threshold_detector import (
     DEFAULT_OCCULTER_R,
     DEFAULT_CENTER_XY,
 )
-from cv.flare_classifier import classify_flare
-from cv.donki_client import _compute_arrival, _classify_direction, cme_to_fields
-from cv.fusion import StormEvent, fuse
+from backend.cv.data_ingestion.flare_classifier import classify_flare
+from backend.cv.data_ingestion.donki_client import _compute_arrival, _classify_direction, cme_to_fields
+from backend.cv.storm_event_generator.fusion import StormEvent, fuse
+from backend.paths import STUBS_DIR
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -404,7 +399,7 @@ class TestDetectStubFallback:
 
     @pytest.mark.parametrize("storm_id", ["2024-10-G4", "2024-05-G5"])
     def test_stub_loads_directly(self, storm_id):
-        stub_path = Path(__file__).parent.parent / "ml" / "stubs" / f"storm_event_{storm_id}.json"
+        stub_path = STUBS_DIR / f"storm_event_{storm_id}.json"
         assert stub_path.exists(), f"Stub not found: {stub_path}"
         with open(stub_path) as f:
             data = json.load(f)
@@ -421,8 +416,8 @@ class TestDetectStubFallback:
         """
         With an empty png_dir, detect() should fall back to stub JSON.
         """
-        from cv.detect import detect, STORM_CONFIGS
-        import cv.detect as det_module
+        from backend.cv.storm_event_generator.detect import detect, STORM_CONFIGS
+        import backend.cv.storm_event_generator.detect as det_module
 
         # Patch STORM_CONFIGS to point png_dir to a non-existent directory
         patched = {
@@ -431,12 +426,12 @@ class TestDetectStubFallback:
             "annotated_dir": str(tmp_path / "annotated"),
         }
         with patch.dict(det_module.STORM_CONFIGS, {storm_id: patched}):
-            event = detect(storm_id, base_dir=str(Path(__file__).parent.parent))
+            event = detect(storm_id)
         assert isinstance(event, StormEvent)
         assert event.storm_id == storm_id
 
     def test_g4_stub_physics_in_range(self):
-        stub_path = Path(__file__).parent.parent / "ml" / "stubs" / "storm_event_2024-10-G4.json"
+        stub_path = STUBS_DIR / "storm_event_2024-10-G4.json"
         with open(stub_path) as f:
             data = json.load(f)
         cme = data["cme"]
@@ -445,7 +440,7 @@ class TestDetectStubFallback:
         assert data["scales"]["G"] == 4
 
     def test_g5_stub_physics_in_range(self):
-        stub_path = Path(__file__).parent.parent / "ml" / "stubs" / "storm_event_2024-05-G5.json"
+        stub_path = STUBS_DIR / "storm_event_2024-05-G5.json"
         with open(stub_path) as f:
             data = json.load(f)
         cme = data["cme"]

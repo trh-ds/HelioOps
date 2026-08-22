@@ -7,19 +7,12 @@ Run from project root: pytest tests/test_retrieval.py -v
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 
 import numpy as np
-import pytest
 
 # Ensure project root on path
-_root = Path(__file__).parent.parent
-if str(_root) not in sys.path:
-    sys.path.insert(0, str(_root))
-
-from embeddings.retrieval import query_kb, format_context, query_all_kbs
-from embeddings.embedder import embed_query
+from backend.embeddings.retrieval import query_kb, format_context, query_all_kbs
+from backend.embeddings.embedder import embed_query
 
 
 # ── Aviation KB ──────────────────────────────────────────────────────────────
@@ -76,7 +69,6 @@ class TestGridKB:
 
 class TestMaritimeKB:
     def test_maritime_returns_at_least_one(self):
-        """Maritime KB has limited chunks — assert at least 1 result."""
         results = query_kb(
             "maritime_kb",
             "GMDSS HF backup channel storm",
@@ -85,19 +77,57 @@ class TestMaritimeKB:
         )
         assert len(results) >= 1, "Expected at least 1 result from maritime_kb"
 
+    def test_maritime_is_not_grounded_on_a_catalogue_page(self):
+        """
+        maritime_kb previously held 2 chunks, both from imo_gmdss_2019.pdf —
+        the 2-page publisher catalogue page for the GMDSS Manual, not the
+        manual. Advisories cited it and scored the highest confidence of any
+        industry. The corpus is now the ITU-R M-series; guard against the
+        placeholder coming back.
+        """
+        from backend.embeddings.collections import count_collection, with_collection
+
+        count = count_collection("maritime_kb")
+        assert count >= 50, (
+            f"maritime_kb has only {count} chunks — "
+            "run `python -m backend.embeddings.ingest_maritime`"
+        )
+        stale = with_collection(
+            "maritime_kb", lambda c: c.get(where={"source": "imo_gmdss_2019.pdf"})
+        )
+        assert not stale.get("ids"), (
+            "imo_gmdss_2019.pdf is a 2-page catalogue page and must not be ingested"
+        )
+
 
 # ── Telecom KB ───────────────────────────────────────────────────────────────
 
 class TestTelecomKB:
-    @pytest.mark.xfail(reason="telecom_kb not yet populated", strict=True)
     def test_telecom_query_returns_results(self):
-        """telecom_kb is empty — this should fail."""
+        """
+        telecom_kb was declared in COLLECTION_NAMES but had no ingest script
+        and no sources, so it sat at 0 chunks and every telecom advisory
+        carried LOW_COVERAGE. Now populated from the ITU-R P-series.
+        """
         results = query_kb(
             "telecom_kb",
             "GPS L1 degradation satellite uplink",
             n_results=3,
         )
-        assert len(results) >= 1
+        assert len(results) >= 1, (
+            "telecom_kb returned nothing — "
+            "run `python -m backend.embeddings.ingest_telecom`"
+        )
+
+    def test_telecom_kb_has_real_coverage(self):
+        """Enough chunks that LOW_COVERAGE reflects the query, not an empty KB."""
+        from backend.embeddings.collections import count_collection
+        from backend.genai.config import RAG_LOW_COVERAGE_THRESHOLD
+
+        count = count_collection("telecom_kb")
+        assert count > RAG_LOW_COVERAGE_THRESHOLD * 10, (
+            f"telecom_kb has only {count} chunks"
+        )
 
 
 # ── Embedding Consistency ────────────────────────────────────────────────────

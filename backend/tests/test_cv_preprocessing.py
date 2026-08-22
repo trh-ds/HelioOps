@@ -15,19 +15,15 @@ Run:
 import numpy as np
 import pytest
 import cv2
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from cv.preprocessing import (
+from backend.cv.image_threshold_algorithm.preprocessing import (
     load_ccor1_frame,
     running_difference,
     preprocess,
     find_occulter_center,
     OUTPUT_SIZE,
     _pad_to_square,
-    _find_corona_mask,
 )
 
 
@@ -101,18 +97,18 @@ def _mock_load_raw(path: str):
 class TestLoadCcor1Frame:
     """Tests for the fixed FITS loader — the black-image bug must be gone."""
 
-    @patch("cv.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
+    @patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
     def test_returns_float32(self, _mock):
         result = load_ccor1_frame("fake.fts")
         assert result.dtype == np.float32, "Must return float32"
 
-    @patch("cv.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
+    @patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
     def test_range_zero_to_one(self, _mock):
         result = load_ccor1_frame("fake.fts")
         assert result.min() >= 0.0, "Min must be >= 0"
         assert result.max() <= 1.0, "Max must be <= 1"
 
-    @patch("cv.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
+    @patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
     def test_not_black_image(self, _mock):
         """
         THE CORE BUG FIX: with a cosmic ray at 60,000 in a field of 200-600,
@@ -127,7 +123,7 @@ class TestLoadCcor1Frame:
             "percentile clip not working."
         )
 
-    @patch("cv.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
+    @patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
     def test_cosmic_ray_removed(self, _mock):
         """
         The cosmic ray pixel (200, 300) must not dominate the output.
@@ -145,7 +141,7 @@ class TestLoadCcor1Frame:
             "cosmic ray spike may still be dominating the output range."
         )
 
-    @patch("cv.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
+    @patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits", side_effect=_mock_load_raw)
     def test_fix_a_non_square_padded(self, _mock):
         """
         FIX-A: Non-square FITS (768×1024) must be letterbox-padded to square
@@ -167,7 +163,7 @@ class TestRunningDifference:
 
     def _make_frame_pair(self, with_cme: bool = True):
         """Return (prev_frame, curr_frame) where curr has a CME arc if requested."""
-        with patch("cv.preprocessing._load_raw_fits", side_effect=_mock_load_raw):
+        with patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits", side_effect=_mock_load_raw):
             prev_data, _ = _mock_load_raw("frame_prev.fts")
             curr_data, _ = _mock_load_raw("frame_curr.fts")
 
@@ -338,7 +334,7 @@ class TestEndToEndPipeline:
     → preprocess directly (no CNN wrapper).
     """
 
-    @patch("cv.preprocessing._load_raw_fits")
+    @patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits")
     def test_cme_visible_in_diff(self, mock_load):
         """CME arc must be brighter than background in the running-difference frame."""
         def side_effect(path):
@@ -469,3 +465,49 @@ class TestBugFixes:
                 f"Input shape {input_shape} → output {result.shape}. "
                 f"Expected (512, 512). FIX-C incomplete."
             )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Section 6 — batch output layout round-trip
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBatchLayoutRoundTrip:
+    """
+    batch_preprocess_directory() writes png/ + diff/; load_cached_sequence()
+    reads them back.  If the two layouts drift apart, detect() silently falls
+    through to the stub instead of running the detector.
+    """
+
+    @patch("backend.cv.image_threshold_algorithm.preprocessing._load_raw_fits")
+    def test_batch_output_is_readable_by_detector(self, mock_load, tmp_path):
+        from backend.cv.image_threshold_algorithm.preprocessing import batch_preprocess_directory
+        from backend.cv.image_threshold_algorithm.threshold_detector import load_cached_sequence
+
+        def side_effect(path):
+            shape = (1024, 1024)
+            data = _make_corona(shape=shape, cosmic_ray=True,
+                                cme_arc="002" in str(path), cme_angle_deg=45.0)
+            meta = {"instrument": "LASCO", "detector": "C2",
+                    "date_obs": "2024-10-11", "exptime": 25.0,
+                    "raw_shape": shape, "filename": str(path)}
+            return data, meta
+        mock_load.side_effect = side_effect
+
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        for i in (1, 2, 3):
+            (raw_dir / f"frame_{i:03d}.fts").touch()
+
+        results = batch_preprocess_directory(str(raw_dir), str(tmp_path))
+        assert all(r["success"] for r in results), [r["error"] for r in results]
+        assert (tmp_path / "png").is_dir() and (tmp_path / "diff").is_dir()
+
+        diffs, norms, metas = load_cached_sequence(str(tmp_path))
+        assert len(norms) == 3, f"expected 3 normalised frames, got {len(norms)}"
+        assert len(diffs) == 2, f"expected 2 diff frames, got {len(diffs)}"
+        assert all(f.shape == (512, 512) for f in norms + diffs)
+
+        # occulter_r must survive the sidecar round-trip, not silently fall back
+        assert metas[0]["occulter_r"] == results[0]["occulter_r"], (
+            f"occulter_r lost in sidecar: wrote {results[0]['occulter_r']}, "
+            f"read {metas[0]['occulter_r']}"
+        )

@@ -3,7 +3,7 @@ tests/test_pipeline.py — Integration tests for the backend pipeline bridge.
 
 Tests:
   - ML inference (with fallback when checkpoints missing)
-  - Schema adapter (cv.fusion.StormEvent → genai.models.StormEvent)
+  - Schema adapter (cv.storm_event_generator.fusion.StormEvent → genai.models.StormEvent)
   - Full pipeline (detect → adapt → predict → generate → verify)
 
 Run:
@@ -13,6 +13,7 @@ Run:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,9 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from cv.fusion import StormEvent as CvStormEvent, fuse
+from backend.cv.storm_event_generator.fusion import StormEvent as CvStormEvent, fuse
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +29,7 @@ from cv.fusion import StormEvent as CvStormEvent, fuse
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_cv_event() -> CvStormEvent:
-    """Build a realistic cv.fusion.StormEvent matching the G4 stub shape."""
+    """Build a realistic cv.storm_event_generator.fusion.StormEvent matching the G4 stub shape."""
     cme = {
         "speed_km_s": 1480.0, "angular_width_deg": 110.0,
         "direction": "earth_directed", "arrival_estimate": "2024-10-11T18:00:00Z",
@@ -57,11 +56,11 @@ def _make_cv_event() -> CvStormEvent:
 class TestMLInference:
     def test_fallback_when_no_checkpoints(self):
         """Without checkpoints, predict() returns conservative defaults."""
-        from ML_after_CV.inference import predict, _MODELS, _CHECKPOINT_DIR
+        from backend.ml.inference import predict, _MODELS
         _MODELS.clear()
 
         # Point to a non-existent dir so models can't load
-        import ML_after_CV.inference as inf_mod
+        import backend.ml.inference as inf_mod
         original_dir = inf_mod._CHECKPOINT_DIR
         inf_mod._CHECKPOINT_DIR = Path("/nonexistent/checkpoints")
         try:
@@ -77,7 +76,7 @@ class TestMLInference:
 
     def test_feature_extraction(self):
         """Verify feature extraction produces correct shape and values."""
-        from ML_after_CV.inference import _extract_features
+        from backend.ml.inference import _extract_features
 
         event = _make_cv_event()
         df = _extract_features(event.model_dump())
@@ -96,7 +95,7 @@ class TestMLInference:
 
     def test_prediction_with_checkpoints_if_available(self):
         """If checkpoints exist, predict returns real values (not defaults)."""
-        from ML_after_CV.inference import predict, _MODELS, _CHECKPOINT_DIR
+        from backend.ml.inference import predict, _MODELS, _CHECKPOINT_DIR
         _MODELS.clear()
 
         ckpt_exists = (_CHECKPOINT_DIR / "gps_q500.pkl").exists()
@@ -119,8 +118,8 @@ class TestMLInference:
 class TestAdapter:
     def test_basic_adaptation(self):
         """Adapter converts all required fields correctly."""
-        from backend.adapter import adapt_storm_event
-        from genai.models import GScale
+        from backend.adapters.schema_adapter import adapt_storm_event
+        from backend.genai.models import GScale
 
         cv_event = _make_cv_event()
         genai_event = adapt_storm_event(cv_event)
@@ -134,7 +133,7 @@ class TestAdapter:
 
     def test_arrival_parsed(self):
         """Arrival estimate converts to datetime."""
-        from backend.adapter import adapt_storm_event
+        from backend.adapters.schema_adapter import adapt_storm_event
 
         cv_event = _make_cv_event()
         genai_event = adapt_storm_event(cv_event)
@@ -144,7 +143,7 @@ class TestAdapter:
 
     def test_peak_window_set(self):
         """Peak impact window start/end are set from timeline."""
-        from backend.adapter import adapt_storm_event
+        from backend.adapters.schema_adapter import adapt_storm_event
 
         cv_event = _make_cv_event()
         genai_event = adapt_storm_event(cv_event)
@@ -156,8 +155,8 @@ class TestAdapter:
 
     def test_g_scale_clamping(self):
         """G=0 clamps to G1."""
-        from backend.adapter import adapt_storm_event
-        from genai.models import GScale
+        from backend.adapters.schema_adapter import adapt_storm_event
+        from backend.genai.models import GScale
 
         cv_event = _make_cv_event()
         # Override scales to G=0
@@ -168,7 +167,7 @@ class TestAdapter:
 
     def test_empty_alert_text_enriched(self):
         """Empty alert text gets enriched with storm data."""
-        from backend.adapter import adapt_storm_event
+        from backend.adapters.schema_adapter import adapt_storm_event
 
         cv_event = _make_cv_event()
         cv_event.noaa_alert_raw = ""
@@ -179,7 +178,7 @@ class TestAdapter:
 
     def test_kp_fallback_to_map(self):
         """When alert text has no Kp, fall back to G→Kp map."""
-        from backend.adapter import adapt_storm_event
+        from backend.adapters.schema_adapter import adapt_storm_event
 
         cv_event = _make_cv_event()
         cv_event.noaa_alert_raw = "Storm alert no kp info"
@@ -190,7 +189,7 @@ class TestAdapter:
 
     def test_genai_event_serializable(self):
         """Adapted event must be JSON-serializable."""
-        from backend.adapter import adapt_storm_event
+        from backend.adapters.schema_adapter import adapt_storm_event
 
         cv_event = _make_cv_event()
         genai_event = adapt_storm_event(cv_event)
@@ -241,8 +240,8 @@ class TestFullPipeline:
         requiring GROQ_API_KEY in CI.
         """
         from backend.pipeline import run_full_pipeline
-        from genai.models import (
-            ActionItem, AdvisoryOutput, Industry, SafetyFlag, SeverityTier,
+        from backend.genai.models import (
+            ActionItem, AdvisoryOutput, Industry, SeverityTier,
         )
 
         # Mock genai.run_pipeline to avoid needing Groq API key
@@ -268,11 +267,10 @@ class TestFullPipeline:
         async def mock_run_pipeline(storm):
             return [mock_advisory]
 
-        with patch("genai.run_pipeline", mock_run_pipeline), \
-             patch("genai.orchestrator.run_pipeline", mock_run_pipeline):
+        with patch("backend.genai.run_pipeline", mock_run_pipeline), \
+             patch("backend.genai.orchestrator.run_pipeline", mock_run_pipeline):
             result = await run_full_pipeline(
                 "2024-10-G4",
-                base_dir=str(Path(__file__).parent.parent),
             )
 
         assert result.storm_id == "2024-10-G4"
@@ -286,3 +284,183 @@ class TestFullPipeline:
         # Verifier should have run
         assert len(result.verified_advisories) == 1
         assert len(result.provenance_traces) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Streaming contract — one terminal event, every stage closed
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestStreamEventContract:
+    """
+    genai.stream_pipeline() ends its own stream with "pipeline.complete".
+    Forwarded verbatim it collides with stream_full_pipeline()'s terminal event:
+    a client that stops on pipeline.complete (the frontend does) would never see
+    verification, and would read storm_id/total_verified off the wrong event.
+    """
+
+    @pytest.mark.asyncio
+    async def test_genai_complete_is_rescoped_to_its_stage(self):
+        from backend.pipeline import stream_full_pipeline
+
+        async def mock_stream(storm):
+            yield {
+                "event": "agent.thinking",
+                "step": "routing_complete",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            yield {  # genai's terminal event — must not reach the client as-is
+                "event": "pipeline.complete",
+                "total_advisories": 0,
+                "industries": [],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        with patch(
+            "backend.pipeline.advisory_adapter.stream", side_effect=mock_stream
+        ):
+            events = [
+                e
+                async for e in stream_full_pipeline("2024-10-G4")
+            ]
+
+        completes = [e for e in events if e["event"] == "pipeline.complete"]
+        assert len(completes) == 1, (
+            f"expected exactly 1 terminal pipeline.complete, got {len(completes)}: "
+            f"{[e.get('total_advisories') for e in completes]}"
+        )
+        assert completes[0] is events[-1], "pipeline.complete must be the last event"
+        assert completes[0]["storm_id"] == "2024-10-G4"
+        assert "total_verified" in completes[0]
+
+        # genai's event became this stage's completed marker, which the step
+        # otherwise never emitted — the frontend's progress bar reads these.
+        stages = {
+            (e["stage"], e["status"])
+            for e in events
+            if e["event"] == "pipeline.stage"
+        }
+        for stage in ("detection", "impact_prediction", "adaptation", "advisory_generation"):
+            assert (stage, "completed") in stages, f"{stage} never reported completed"
+
+
+class TestNoCircularImports:
+    """
+    backend.pipeline imports the adapters; backend.adapters.repository_adapter
+    needs PipelineResult back. A module-level import in either direction makes
+    `import backend.pipeline` fail on its own — which only shows up when a
+    process happens to import it first, not under the full suite.
+    """
+
+    @pytest.mark.parametrize(
+        "module",
+        [
+            "backend.pipeline",
+            "backend.app",
+            "backend.adapters",
+            "backend.adapters.repository_adapter",
+            "backend.health",
+            "backend.cv.storm_event_generator.detect",
+        ],
+    )
+    def test_module_imports_standalone(self, module):
+        import subprocess
+
+        root = Path(__file__).resolve().parents[2]
+        proc = subprocess.run(
+            [sys.executable, "-c", f"import {module}"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(root)},
+        )
+        assert proc.returncode == 0, (
+            f"`import {module}` fails in a fresh process:\n{proc.stderr[-800:]}"
+        )
+
+
+class TestGuardrailsWiring:
+    """
+    self_check_hallucination() swallows every exception so a checker failure can
+    never block an advisory. That also means a broken call site (a missing import,
+    a renamed arg) degrades to "self-check skipped" and the hallucination guard is
+    silently off for every advisory the system ever ships.
+    """
+
+    @pytest.mark.asyncio
+    async def test_self_check_parses_a_verdict_instead_of_skipping(self):
+        from backend.genai import guardrails
+        from backend.genai.models import (
+            ActionItem,
+            AdvisoryOutput,
+            Industry,
+            RetrievedChunk,
+            SeverityTier,
+        )
+
+        advisory = AdvisoryOutput(
+            advisory_id="t1",
+            storm_event_id="s1",
+            industry=Industry("aviation"),
+            severity=SeverityTier("HIGH"),
+            confidence_score=0.8,
+            summary="Reroute polar flights below 70N.",
+            action_items=[
+                ActionItem(
+                    step=1,
+                    action="Reroute polar flights below 70N.",
+                    rationale="HF blackout risk.",
+                    source_ref="NAT Doc 007 4.3",
+                    time_window="T+0 to T+6h",
+                )
+            ],
+            sources_cited=["NAT Doc 007"],
+            validation_passed=True,
+            generated_at=datetime.now(timezone.utc),
+            model_used="test",
+        )
+        chunks = [
+            RetrievedChunk(
+                chunk_id="c1",
+                text="NAT Doc 007 4.3: reroute polar flights below 70N.",
+                source="NAT Doc 007",
+                similarity=0.9,
+                metadata={},
+            )
+        ]
+
+        async def fake_complete_json(system, user, **kwargs):
+            return json.dumps(
+                {"hallucinations_found": True, "issues": ["invented altitude"], "verdict_confidence": 0.9}
+            )
+
+        with patch.object(guardrails, "complete_json", fake_complete_json):
+            clean, note = await guardrails.self_check_hallucination(advisory, chunks)
+
+        assert clean is False, "checker said hallucinations_found but result was clean"
+        assert "invented altitude" in note
+        assert "self-check skipped" not in note
+
+
+class TestEnvLoading:
+    """Importing any backend module must load .env, not just backend.app."""
+
+    def test_dotenv_loaded_on_package_import(self):
+        import subprocess
+
+        root = Path(__file__).resolve().parents[2]
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import backend, os; print(bool(os.environ.get('GROQ_API_KEY')))",
+            ],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(root)},
+        )
+        assert proc.returncode == 0, proc.stderr[-500:]
+        assert proc.stdout.strip().endswith("True"), (
+            "GROQ_API_KEY not present after `import backend` — .env is not being "
+            f"loaded at package import.\n{proc.stdout}"
+        )
