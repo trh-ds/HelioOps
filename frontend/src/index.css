@@ -64,6 +64,11 @@ a:hover {
   height: var(--nav-h);
   display: flex;
   align-items: stretch;
+  /* Every item in the bar - the four links AND the call to action - is a
+     sibling here, spread by one rule. The links used to carry `margin-right:
+     auto` while the CTA carried a hard `margin-left: 64px`, so the gaps between
+     links were equal to each other but the last gap never matched them. */
+  justify-content: space-between;
   padding: 0 34px;
   border: 1px solid rgba(199, 206, 255, 0.13);
   border-bottom-color: rgba(199, 206, 255, 0.11);
@@ -72,19 +77,18 @@ a:hover {
   font-size: 10px;
   letter-spacing: 0.24em;
 }
+/* display:contents dissolves this wrapper so its links become direct flex
+   children of .sitenav. Without it the four links are one flex item and the
+   CTA is another, which is exactly the uneven split above. */
 .sitenav-links {
-  display: flex;
-  flex: 1;
-  align-items: stretch;
+  display: contents;
 }
 .sitenav-links a {
   display: flex;
   align-items: center;
-  margin-right: auto;
   color: rgba(233, 233, 246, 0.62);
   transition: color 0.2s;
 }
-.sitenav-links a:last-child { margin-right: 0; }
 .sitenav-links a.is-active {
   border-bottom: 1px solid #f3ab5c;
   color: #fff;
@@ -92,7 +96,6 @@ a:hover {
 .sitenav-cta {
   display: flex;
   align-items: center;
-  margin-left: 64px;
   letter-spacing: 0.2em;
   color: #f3ab5c;
   white-space: nowrap;
