@@ -1,11 +1,23 @@
-import pandas as pd
-import numpy as np
-import lightgbm as lgb
-import optuna
-import joblib
-import os
-from sklearn.model_selection import GroupKFold
+"""
+Trains the 6 LightGBM quantile checkpoints that backend/ml/inference.py serves.
+
+    PYTHONPATH=. python backend/ml/02_train_and_tune.py
+
+GroupKFold on storm_id, not a row split: 40 frames share one storm profile, so
+a random split leaks the answer across the fold boundary and the CV loss comes
+out meaninglessly good.
+"""
+
 import warnings
+
+import joblib
+import lightgbm as lgb
+import numpy as np
+import optuna
+import pandas as pd
+from sklearn.model_selection import GroupKFold
+
+from backend.paths import CHECKPOINT_DIR, SYNTHETIC_CSV
 
 warnings.filterwarnings("ignore")
 
@@ -97,18 +109,21 @@ def calculate_metrics(y_true, y_pred_low, y_pred_high):
     
     # Prediction Interval Normalized Average Width
     y_range = np.max(y_true) - np.min(y_true)
-    if y_range == 0: y_range = 1e-8
+    if y_range == 0:
+        y_range = 1e-8
     pinaw = np.mean(y_pred_high - y_pred_low) / y_range
     
     return picp, pinaw
 
 def main():
-    data_path = "data/synthetic_storms.csv"
-    if not os.path.exists(data_path):
-        print("Data not found. Please run 01_data_generation_eda.py first.")
-        return
-        
-    df = pd.read_csv(data_path)
+    if not SYNTHETIC_CSV.exists():
+        raise SystemExit(
+            f"{SYNTHETIC_CSV} not found. Run:\n"
+            "  PYTHONPATH=. python backend/ml/01_data_generation_eda.py"
+        )
+
+    df = pd.read_csv(SYNTHETIC_CSV)
+    print(f"Training on {len(df)} rows / {df.storm_id.nunique()} storms from {SYNTHETIC_CSV.name}")
     
     alphas = [0.025, 0.500, 0.975]
     
@@ -134,19 +149,19 @@ def main():
     
     # 3. Export Models
     print("\nExporting lightweight models...")
-    ckpt_dir = "checkpoints"
-    os.makedirs(ckpt_dir, exist_ok=True)
+    ckpt_dir = CHECKPOINT_DIR
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
     
     # Using compress=3 to balance compression ratio and loading speed
-    joblib.dump(gps_models[0.025], os.path.join(ckpt_dir, "gps_q025.pkl"), compress=3)
-    joblib.dump(gps_models[0.500], os.path.join(ckpt_dir, "gps_q500.pkl"), compress=3)
-    joblib.dump(gps_models[0.975], os.path.join(ckpt_dir, "gps_q975.pkl"), compress=3)
+    joblib.dump(gps_models[0.025], ckpt_dir / "gps_q025.pkl", compress=3)
+    joblib.dump(gps_models[0.500], ckpt_dir / "gps_q500.pkl", compress=3)
+    joblib.dump(gps_models[0.975], ckpt_dir / "gps_q975.pkl", compress=3)
     
-    joblib.dump(hf_models[0.025], os.path.join(ckpt_dir, "hf_q025.pkl"), compress=3)
-    joblib.dump(hf_models[0.500], os.path.join(ckpt_dir, "hf_q500.pkl"), compress=3)
-    joblib.dump(hf_models[0.975], os.path.join(ckpt_dir, "hf_q975.pkl"), compress=3)
+    joblib.dump(hf_models[0.025], ckpt_dir / "hf_q025.pkl", compress=3)
+    joblib.dump(hf_models[0.500], ckpt_dir / "hf_q500.pkl", compress=3)
+    joblib.dump(hf_models[0.975], ckpt_dir / "hf_q975.pkl", compress=3)
     
-    print(f"Successfully saved 6 models to {ckpt_dir}/")
+    print(f"Successfully saved 6 models to {ckpt_dir}")
 
 if __name__ == "__main__":
     main()

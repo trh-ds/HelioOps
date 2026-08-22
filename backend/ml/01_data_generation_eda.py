@@ -1,8 +1,22 @@
-import pandas as pd
-import numpy as np
+"""
+Generates the synthetic storm dataset the served checkpoints are trained on,
+plus its EDA plots.
+
+    PYTHONPATH=. python backend/ml/01_data_generation_eda.py
+
+The physics-shaped rules below ARE the ground truth: 02_train_and_tune.py
+measures how well LightGBM recovers them, not how well it predicts real space
+weather. Say so whenever the R2 is quoted.
+"""
+
 import os
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
+
+from backend.paths import EDA_DIR, SYNTHETIC_CSV
 
 def generate_synthetic_data(num_storms=100, frames_per_storm=50):
     """
@@ -18,7 +32,6 @@ def generate_synthetic_data(num_storms=100, frames_per_storm=50):
         # Base storm characteristics
         # Kp can be anywhere from 1.0 to 9.0, heavily weighted towards lower numbers
         base_kp = np.clip(np.random.gamma(shape=2.0, scale=1.5), 1.0, 9.0)
-        base_g_scale = int(max(0, base_kp - 4))
         
         # Wind speed correlates somewhat with Kp
         base_wind = 300 + (base_kp * 70) + np.random.normal(0, 50)
@@ -89,7 +102,7 @@ def generate_synthetic_data(num_storms=100, frames_per_storm=50):
     df = pd.DataFrame(data)
     return df
 
-def run_eda(df, output_dir="eda_plots"):
+def run_eda(df, output_dir=EDA_DIR):
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"Running EDA on dataset with shape: {df.shape}")
@@ -137,9 +150,9 @@ def run_eda(df, output_dir="eda_plots"):
     print(f"EDA complete. Plots saved to {output_dir}/")
 
 if __name__ == "__main__":
-    os.makedirs("data", exist_ok=True)
+    SYNTHETIC_CSV.parent.mkdir(parents=True, exist_ok=True)
     df = generate_synthetic_data(num_storms=120, frames_per_storm=40)
-    df.to_csv("data/synthetic_storms.csv", index=False)
-    print("Synthetic data generated and saved to data/synthetic_storms.csv")
-    
-    run_eda(df, output_dir="eda_plots")
+    df.to_csv(SYNTHETIC_CSV, index=False)
+    print(f"Synthetic data: {df.shape[0]} rows x {df.shape[1]} cols -> {SYNTHETIC_CSV}")
+
+    run_eda(df, output_dir=EDA_DIR)

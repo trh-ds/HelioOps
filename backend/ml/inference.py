@@ -2,10 +2,10 @@
 ML_after_CV/inference.py — LightGBM quantile regression inference.
 
 Loads 6 trained checkpoints (GPS + HF, each with q0.025/q0.500/q0.975)
-and predicts impact metrics from a cv.fusion.StormEvent dict.
+and predicts impact metrics from a cv.storm_event_generator.fusion.StormEvent dict.
 
 Usage:
-    from ML_after_CV.inference import predict
+    from backend.ml.inference import predict
     result = predict(cv_event.model_dump())
     print(result.gps_error_m, result.hf_blackout_prob)
 """
@@ -13,16 +13,15 @@ Usage:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
-log = logging.getLogger(__name__)
+from backend.paths import CHECKPOINT_DIR as _CHECKPOINT_DIR
 
-_CHECKPOINT_DIR = Path(__file__).parent / "checkpoints"
+log = logging.getLogger(__name__)
 
 # G-scale → Kp index mapping (NOAA Space Weather Scales)
 _G_TO_KP: dict[int, float] = {0: 0.0, 1: 5.0, 2: 6.0, 3: 7.0, 4: 8.3, 5: 9.0}
@@ -77,7 +76,7 @@ def _load_models() -> None:
 
 
 def _extract_features(storm_dict: dict) -> pd.DataFrame:
-    """Extract the 9 features LightGBM expects from a cv.fusion.StormEvent dict."""
+    """Extract the 9 features LightGBM expects from a cv.storm_event_generator.fusion.StormEvent dict."""
     scales = storm_dict.get("scales", {})
     cme = storm_dict.get("cme", {})
     l1 = storm_dict.get("l1_solar_wind", {})
@@ -101,7 +100,7 @@ def _extract_features(storm_dict: dict) -> pd.DataFrame:
 
 def predict(storm_dict: dict) -> ImpactPrediction:
     """
-    Run quantile regression inference on a cv.fusion.StormEvent dict.
+    Run quantile regression inference on a cv.storm_event_generator.fusion.StormEvent dict.
 
     Returns ImpactPrediction with median + 95% CI for GPS error and HF blackout.
     Falls back to conservative defaults if models unavailable.
