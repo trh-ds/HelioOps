@@ -1,0 +1,64 @@
+NOAA SPACE WEATHER SCALES
+Source: NOAA Space Weather Prediction Center (swpc.noaa.gov)
+Public Domain — US Government work
+
+GEOMAGNETIC STORMS (G Scale) — Measured by Kp index
+
+G1 (Minor)     | Kp=5 | Power: weak fluctuations | Aviation: minor HF degradation at polar routes | GPS: negligible | Maritime: minor
+G2 (Moderate)  | Kp=6 | Power: voltage alarms at high latitudes, transformer damage possible at long exposure | Aviation: HF radio propagation fades at higher latitudes | GPS: slight degradation | Maritime: HF reduced reliability
+G3 (Strong)    | Kp=7 | Power: voltage corrections required, false alarms on protection devices | Aviation: HF radio intermittent, low-frequency nav issues on sunlit side | GPS: single-freq errors increase | Maritime: HF unreliable in polar regions
+G4 (Severe)    | Kp=8-9 | Power: widespread voltage control problems, some grid systems may collapse, transformer damage | Aviation: HF radio blackout across most of sunlit side, satellite nav degraded 1-2 hrs | GPS: 10-40m errors on L1 | Maritime: GMDSS HF failure risk, AIS degradation
+G5 (Extreme)   | Kp=9+ | Power: complete collapse/blackouts, transformers may be damaged | Aviation: complete HF blackout 1-2 days, satellite nav out for days | GPS: L1 unusable, dual-freq degraded | Maritime: GMDSS primary comms lost, satellite backup required
+
+SOLAR RADIATION STORMS (S Scale) — Measured by 10 MeV proton flux
+
+S1 (Minor)     | Flux=10    | Minor impacts on HF in polar regions
+S2 (Moderate)  | Flux=100   | HF radio blackout in polar regions, navigation position errors
+S3 (Strong)    | Flux=1000  | HF radio blackout on polar routes, satellite uplink degradation
+S4 (Severe)    | Flux=10000 | Blackout of HF radio, significant satellite noise
+S5 (Extreme)   | Flux=100000| Complete HF blackout, major satellite operations anomalies
+
+RADIO BLACKOUTS (R Scale) — Measured by GOES X-ray peak brightness
+
+R1 (Minor)     | M1  | Minor HF degradation on sunlit side
+R2 (Moderate)  | M5  | Limited HF radio contact at lower frequencies, loss of SELCAL
+R3 (Strong)    | X1  | Wide-area HF radio blackout on sunlit side, low-freq nav out 1 hr
+R4 (Severe)    | X10 | HF radio blackout on most of sunlit side 1-2 hrs, total loss of HF on sunlit side
+R5 (Extreme)   | X20 | Complete HF blackout on sunlit side, no HF radio contact for 1-2 days
+
+INDUSTRY IMPACT MATRIX (derived from NOAA scale definitions)
+
+Storm Level | Aviation | Power Grid | Telecom/GPS | Maritime
+G1          | LOW      | LOW        | NONE        | NONE
+G2          | MEDIUM   | MEDIUM     | LOW         | LOW
+G3          | HIGH     | HIGH       | MEDIUM      | MEDIUM
+G4          | CRITICAL | CRITICAL   | HIGH        | HIGH
+G5          | CRITICAL | CRITICAL   | CRITICAL    | CRITICAL
+
+AVIATION SPECIFIC — HF Frequency Impact by Storm Level
+G2+: Degraded HF on polar routes above 70N. Backup: 8825 kHz, 11384 kHz, 17946 kHz
+G3+: Intermittent HF blackout. Reroute polar flights below 78N latitude. Switch to SATCOM.
+G4+: Full HF blackout sunlit side. All polar routes suspended. SELCAL unreliable on all NAT tracks.
+
+POWER GRID SPECIFIC — GIC Risk by Geographic Zone
+Zone A (>60 geomagnetic latitude — Scandinavia, Canada, Scotland, Alaska): High GIC risk at G2+
+Zone B (50-60 degrees — Central Europe, Northern USA): Significant GIC risk at G3+
+Zone C (<50 degrees): GIC risk only at G4+
+
+March 2024 G4-G5 Storm (May 10-11 2024):
+- Peak Kp: 9 (G5 threshold)
+- Impacts: 500+ polar flight diversions, GPS errors 15-40m on L1, GIC warnings in Canada/UK/Scandinavia
+- Auroras visible as far south as India (17N) and Texas (30N)
+- NOAA G4/G5 watches issued 09 May, storm hit 10 May 18:00 UTC
+
+September 2017 G4 Storm:
+- Peak Kp: 8.2
+- X9.3 solar flare preceded CME (R3 radio blackout)
+- HF blackout across sunlit hemisphere for 8 hours
+- Airlines rerouted North Atlantic polar tracks
+
+Halloween 2003 G5 Storm:
+- Peak Kp: 9+
+- Power outages in Sweden, transformer damage in South Africa
+- HF blackout for 2 days across North Atlantic
+- >600 satellite anomalies reported
