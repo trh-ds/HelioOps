@@ -262,3 +262,32 @@
 .act-cite-link { text-decoration: none; cursor: pointer; }
 .act-cite-link:hover,
 .act-cite-link:focus-visible { text-decoration: underline; color: rgba(143, 240, 192, 1); }
+
+/* ---- Ask box: scoped per-agent chat inside an advisory card ---- */
+.askbox { margin-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; }
+.askbox > summary { cursor: pointer; }
+.askbox > summary:hover { color: rgba(255, 255, 255, 0.85); }
+
+.ask-turns { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 12px; }
+.ask-turns > li { border-left: 2px solid rgba(143, 240, 192, 0.3); padding-left: 10px; }
+.ask-q { font-size: 13px; color: rgba(255, 255, 255, 0.55); margin-bottom: 4px; }
+.ask-q::before { content: '> '; color: rgba(143, 240, 192, 0.6); }
+.ask-a { font-size: 14px; line-height: 1.5; }
+.ask-sources { margin-top: 5px; }
+
+.ask-input { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
+.ask-input textarea {
+  flex: 1;
+  resize: vertical;
+  min-height: 44px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+}
+.ask-input textarea:focus { outline: none; border-color: rgba(143, 240, 192, 0.45); }
+.ask-input textarea:disabled { opacity: 0.5; }
+.ask-error { color: rgba(255, 150, 150, 0.9); margin-top: 6px; }

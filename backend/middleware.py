@@ -81,6 +81,26 @@ def peek_rate_limit(storm_id: str) -> float:
     return max(0.0, RATE_LIMIT_SECONDS - (time.time() - _pipeline_calls.get(storm_id, 0)))
 
 
+# ── Chat Rate Limiting ──────────────────────────────────────────────────────
+#
+# Separate budget from the pipeline. Chat runs on the checker model, which is a
+# different Groq TPM bucket, so the two cannot starve each other - but an
+# operator holding down send can still burn quota, so it gets its own floor.
+# Short (5s), because unlike a pipeline run this is meant to feel interactive.
+
+_ask_calls: dict[str, float] = {}
+ASK_RATE_LIMIT_SECONDS = 5
+
+
+def check_ask_rate_limit(client_key: str) -> bool:
+    """True if this client may ask now; False if it must wait. Records on allow."""
+    now = time.time()
+    if now - _ask_calls.get(client_key, 0) < ASK_RATE_LIMIT_SECONDS:
+        return False
+    _ask_calls[client_key] = now
+    return True
+
+
 # ── Storm ID Validation ────────────────────────────────────────────────────
 
 STORM_ID_PATTERN = re.compile(r"^\d{4}-\d{2}-G[1-5]$")

@@ -7,10 +7,13 @@ Architecture: Adapter-wrapped layers
 
 Endpoints:
     POST /api/detect/{storm_id}    — run full pipeline
+    POST /api/ask                  — ask one industry agent about its advisory
     GET  /api/preflight/{storm_id} — read-only pre-run conflict check
     GET  /api/storms               — list available + completed storms
     GET  /api/advisory/{id}        — single verified advisory + provenance
     GET  /api/result/{storm_id}    — full pipeline result
+    GET  /api/kb/source/{file}     — serve a cited document (inline, #page=N)
+    GET  /api/kb/sources           — every citable document
     WS   /ws/stream                — real-time pipeline streaming
     GET  /health                   — liveness
     GET  /health/ready             — readiness (checks dep layers)
@@ -32,13 +35,15 @@ from backend.logging import setup_logging, get_logger
 setup_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
 log = get_logger("backend.app")
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from backend.middleware import (
     SecurityHeadersMiddleware,
     RequestIDMiddleware,
+    check_ask_rate_limit,
     check_rate_limit,
     validate_storm_id,
 )
@@ -311,6 +316,46 @@ async def get_advisory_endpoint(advisory_id: str):
             status_code=404, detail=f"Advisory '{advisory_id}' not found"
         )
     return data
+
+
+# ── Operator chat ───────────────────────────────────────────────────────────
+
+class AskRequest(BaseModel):
+    """One operator question, scoped to one industry agent."""
+
+    industry: str
+    question: str = Field(..., min_length=1, max_length=500)
+    advisory_id: str | None = None
+
+
+@app.post("/api/ask")
+async def ask_agent(payload: AskRequest, request: Request):
+    """
+    Ask one industry agent about its own advisory.
+
+    Runs on the checker model, which is a different Groq TPM bucket from the
+    advisory pipeline - so chatting can never starve a run of the budget it
+    needs. Rate-limited per client because an operator holding down send would
+    otherwise spend that budget anyway.
+    """
+    client_key = request.client.host if request.client else "unknown"
+    if not check_ask_rate_limit(client_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit: wait a few seconds between questions",
+        )
+
+    advisory = (
+        result_repo.get_advisory(payload.advisory_id) if payload.advisory_id else None
+    )
+
+    from backend.genai.ask import answer_question
+
+    try:
+        return await answer_question(payload.industry, payload.question, advisory)
+    except ValueError as exc:
+        # Unknown industry or empty question - a caller bug, not a server fault.
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/result/{storm_id}")

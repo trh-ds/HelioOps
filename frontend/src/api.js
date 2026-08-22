@@ -45,6 +45,16 @@ export const getPreflight = stormId => json(`/api/preflight/${encodeURIComponent
 export const getResult = stormId => json(`/api/result/${encodeURIComponent(stormId)}`)
 export const getAdvisory = id => json(`/api/advisory/${encodeURIComponent(id)}`)
 
+/* Ask one industry agent about its own advisory.
+   Runs on the backend's checker model - a different Groq TPM bucket - so
+   chatting can never starve a pipeline run. 429 means "wait a few seconds". */
+export const ask = (industry, question, advisoryId) =>
+  json('/api/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ industry, question, advisory_id: advisoryId ?? null }),
+  })
+
 export const runPipeline = stormId =>
   json(`/api/detect/${encodeURIComponent(stormId)}`, { method: 'POST' })
 

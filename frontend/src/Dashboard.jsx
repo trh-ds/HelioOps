@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import AskBox from './AskBox.jsx'
 import PageShell from './PageShell.jsx'
 import {
   citationUrl,
@@ -241,6 +242,14 @@ function AdvisoryCard({ advisory, verified }) {
           <div className="adv-sources small muted">
             sources cited: {(advisory.sources_cited ?? []).join(' · ') || '—'}
           </div>
+
+          {/* Scoped chat: the card already knows the industry and the advisory,
+              so the agent never has to ask which one. */}
+          <AskBox
+            industry={advisory.industry}
+            advisoryId={advisory.advisory_id}
+            Citation={Citation}
+          />
         </div>
       )}
     </section>
@@ -503,10 +512,15 @@ export default function Dashboard() {
               ADVISORIES {advisories.length > 0 && `(${advisories.length})`}
             </div>
             {advisories.length === 0 ? (
-              <div className="muted small">
-                Nothing yet. A run takes roughly 20–70s: four agents each do a RAG lookup, a
-                generation pass, and a hallucination self-check on a second model.
-              </div>
+              <>
+                <div className="muted small">
+                  Nothing yet. A run takes roughly 65–80s: four agents each do a RAG lookup, a
+                  generation pass, and a hallucination self-check on a second model.
+                </div>
+                {/* The agents can answer from the knowledge base without a run,
+                    so the console is not dead on arrival. */}
+                <AskBox industry="aviation" Citation={Citation} />
+              </>
             ) : (
               advisories.map(a => (
                 <AdvisoryCard key={a.advisory_id} advisory={a} verified={verifiedById[a.industry]} />
