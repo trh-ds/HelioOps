@@ -656,6 +656,7 @@ Groq entirely down      ->  detection + impact still serve
 | [`docs/PRODUCT_BRIEF.md`](docs/PRODUCT_BRIEF.md) | the problem, the product, why it is built this way |
 | [`docs/TECHNICAL_DEEP_DIVE.md`](docs/TECHNICAL_DEEP_DIVE.md) | per-domain implementation with file references |
 | [`docs/CV_ML_QNA.md`](docs/CV_ML_QNA.md) | **judge-facing Q&A** — the 9-step detector, coupling functions, quantile/CQR methodology, glossary, hostile questions |
+| [`docs/preflight/`](docs/preflight/README.md) | **the pre-flight story** — 13 files, fundamentals to expert: the problem, the conflict rules and their physics, the read-only invariants, what shipped broken and how it was fixed |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | HF Spaces + Vercel runbook, latency budget, failure modes |
 | [`docs/HOW_TO_DEPLOY_BACKEND.md`](docs/HOW_TO_DEPLOY_BACKEND.md) | backend-only procedure: Dockerfile, secrets, verify, troubleshoot |
 | [`AGENTS.md`](AGENTS.md) | project memory — architecture, conventions, gotchas, decisions log |

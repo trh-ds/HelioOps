@@ -136,6 +136,9 @@ tests/test_option_c.py                 — detector geometry, flare/DONKI math, 
 tests/test_cv_preprocessing.py         — FITS fixes + batch png/diff layout round-trip
 docs/DEPLOYMENT.md                     — HF Spaces + Vercel runbook, latency budget, failure modes
 docs/HOW_TO_DEPLOY_BACKEND.md          — backend-only HF Spaces procedure: root Dockerfile, secrets, verify, troubleshoot
+docs/preflight/                        — the pre-flight feature story, 13 md files: problem, operator view,
+                                         internals, conflict rules + physics, read-only invariants, the
+                                         v1 bug and its fix, decisions, tests, timeline, open issues, glossary
 docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 9-step detector, coupling
                                          functions, quantile/CQR methodology, glossary, hostile Qs
 ```
