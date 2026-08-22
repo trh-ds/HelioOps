@@ -12,9 +12,8 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
-
-from pydantic import field_validator
+from backend.paths import CHECKPOINT_DIR, CHROMA_DIR
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,19 +35,38 @@ class Settings(BaseSettings):
     WORKERS: int = 1
     RELOAD: bool = True
 
+    # Gates CORS *and* the /ws/stream origin check -- an unlisted origin gets
+    # WebSocket close code 4003, not a CORS error, so it looks like a backend
+    # fault. Production origins are defaults rather than deploy-time-only
+    # secrets so a forgotten HELIOOPS_CORS_ORIGINS cannot silently break the
+    # browser client. Set that variable (JSON list) to override, e.g. to add a
+    # Vercel preview origin, which has its own hostname.
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8000",
+        "http://localhost:5173",
+        "https://helioops.dpdns.org",
+        "https://heliops.dpdns.org",
+        "https://frontend-olive-six-50.vercel.app",
     ]
 
-    GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
-    GROQ_MAX_TOKENS: int = 2048
+    # The GROQ_* names are the LLM provider's, not ours, so they are read
+    # without the HELIOOPS_ prefix. Without these aliases the env_prefix above
+    # made Settings look for HELIOOPS_GROQ_API_KEY, so a correctly-configured
+    # .env still left this empty and warned "GROQ_API_KEY not set" on every
+    # boot — including in CI, which sets GROQ_API_KEY.
+    # backend/genai/config.py reads os.getenv directly and was never affected,
+    # which is why the LLM layer worked while this field stayed blank.
+    GROQ_API_KEY: str = Field(default="", validation_alias="GROQ_API_KEY")
+    # Kept in step with backend/genai/config.py, which is what the LLM layer
+    # actually reads. llama-3.3-70b-versatile was decommissioned by Groq.
+    GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="GROQ_MODEL")
+    GROQ_MAX_TOKENS: int = Field(default=1200, validation_alias="GROQ_MAX_TOKENS")
 
-    CHROMA_PERSIST_PATH: str = "data/chroma_db"
+    CHROMA_PERSIST_PATH: str = str(CHROMA_DIR)
 
-    ML_CHECKPOINT_DIR: str = "ML_after_CV/checkpoints"
+    ML_CHECKPOINT_DIR: str = str(CHECKPOINT_DIR)
 
     RESULT_REPOSITORY: str = "memory"
     SUPABASE_URL: str = ""

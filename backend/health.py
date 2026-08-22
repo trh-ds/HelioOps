@@ -50,7 +50,7 @@ health_collector = _HealthCollector()
 
 def _check_detection() -> bool:
     try:
-        from cv.detect import STORM_CONFIGS
+        from backend.cv.storm_event_generator.detect import STORM_CONFIGS
 
         return len(STORM_CONFIGS) > 0
     except Exception:
@@ -59,7 +59,7 @@ def _check_detection() -> bool:
 
 def _check_ml() -> bool:
     try:
-        from ML_after_CV.inference import _MODELS, _load_models
+        from backend.ml.inference import _MODELS, _load_models
 
         _load_models()
         return len(_MODELS) >= 6
@@ -69,9 +69,25 @@ def _check_ml() -> bool:
 
 def _check_genai() -> bool:
     try:
-        from genai.impact_router import route_storm
+        from backend.genai.impact_router import route_storm  # noqa: F401 — import probe
 
         return True
+    except Exception:
+        return False
+
+
+def _check_knowledge_base() -> bool:
+    """
+    Every KB must hold chunks. An import probe is not enough: retrieve_chunks()
+    swallows storage errors and returns [], so a DB that is unreadable — or,
+    as happened with a misresolved HELIOOPS_CHROMA_PERSIST_PATH, silently
+    created empty at the wrong path — produces confident ungrounded advisories
+    and no error anywhere. This is the only automatic signal that RAG is alive.
+    """
+    try:
+        from backend.embeddings.collections import COLLECTION_NAMES, count_collection
+
+        return all(count_collection(name) > 0 for name in COLLECTION_NAMES)
     except Exception:
         return False
 
@@ -79,6 +95,7 @@ def _check_genai() -> bool:
 health_collector.register("detection", _check_detection)
 health_collector.register("ml_models", _check_ml)
 health_collector.register("genai_module", _check_genai)
+health_collector.register("knowledge_base", _check_knowledge_base)
 
 
 @router.get("/health")

@@ -1,5 +1,5 @@
 """
-SchemaAdapter — bridges cv.fusion.StormEvent → genai.models.StormEvent.
+SchemaAdapter — bridges cv.storm_event_generator.fusion.StormEvent → genai.models.StormEvent.
 
 This is the Anti-Corruption Layer between the CV and GenAI bounded contexts.
 Both use StormEvent but with incompatible field sets; this adapter translates.
@@ -40,7 +40,7 @@ def _safe_datetime(iso_str: str) -> Optional[datetime]:
 
 
 def adapt_storm_event(cv_event) -> Any:
-    from genai.models import GScale, StormEvent as GenaiStormEvent
+    from backend.genai.models import GScale, StormEvent as GenaiStormEvent
 
     scales = cv_event.scales
     g_int = int(scales.get("G", 0))

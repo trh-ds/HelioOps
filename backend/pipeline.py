@@ -16,7 +16,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -24,6 +23,22 @@ from typing import AsyncGenerator
 from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
+
+# The layers below the backend (cv, ML_after_CV, genai) are reached only through
+# these adapters — never imported directly. app.py imports the same instances.
+from backend.adapters.advisory_adapter import (
+    GenAIAdvisoryAdapter,
+    GenAIVerificationAdapter,
+)
+from backend.adapters.detection_adapter import CVDetectionAdapter
+from backend.adapters.prediction_adapter import MLPredictionAdapter
+from backend.adapters.schema_adapter import adapt_storm_event
+from backend.config import settings
+
+detection_adapter = CVDetectionAdapter(available_storm_ids=settings.AVAILABLE_STORM_IDS)
+prediction_adapter = MLPredictionAdapter()
+advisory_adapter = GenAIAdvisoryAdapter()
+verification_adapter = GenAIVerificationAdapter()
 
 
 class PipelineResult(BaseModel):
@@ -57,7 +72,7 @@ def get_advisory(advisory_id: str) -> dict | None:
     return _ADVISORY_INDEX.get(advisory_id)
 
 
-async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResult:
+async def run_full_pipeline(storm_id: str, base_dir: str | None = None) -> PipelineResult:
     """
     Run the complete pipeline: detect → predict → adapt → generate → verify.
     Each step has try/except — errors logged but pipeline continues where possible.
@@ -66,9 +81,7 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
 
     # ── Step 1: CV Detection ─────────────────────────────────────────────
     try:
-        from cv.detect import detect
-
-        cv_event = await asyncio.to_thread(detect, storm_id, base_dir)
+        cv_event = await detection_adapter.detect_async(storm_id, base_dir)
         result.cv_event = cv_event.model_dump()
         log.info(
             "Detection complete: %s (confidence=%.3f)", storm_id, cv_event.confidence
@@ -83,9 +96,7 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
 
     # ── Step 2: ML Impact Prediction ─────────────────────────────────────
     try:
-        from ML_after_CV.inference import predict as ml_predict
-
-        impact = await asyncio.to_thread(ml_predict, result.cv_event)
+        impact = await prediction_adapter.predict_async(result.cv_event)
         result.impact_prediction = impact.model_dump()
         log.info(
             "Impact prediction: GPS=%.2fm [%.2f–%.2f], HF=%.2f%% [%.2f–%.2f]",
@@ -103,8 +114,6 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
 
     # ── Step 3: Schema Adaptation ────────────────────────────────────────
     try:
-        from backend.adapter import adapt_storm_event
-
         genai_event = adapt_storm_event(cv_event)
         result.genai_event = genai_event.model_dump(mode="json")
         log.info(
@@ -122,9 +131,7 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
 
     # ── Step 4: GenAI Advisory Generation ────────────────────────────────
     try:
-        from genai import run_pipeline
-
-        advisories = await run_pipeline(genai_event)
+        advisories = await advisory_adapter.generate(genai_event)
         result.advisories = [a.model_dump(mode="json") for a in advisories]
         log.info("Generated %d advisories", len(advisories))
     except Exception as exc:
@@ -135,14 +142,12 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
 
     # ── Step 5: Verification ─────────────────────────────────────────────
     if advisories:
-        from genai.verifier import verify_advisory
-
         for advisory in advisories:
             try:
-                verified, provenance = verify_advisory(
-                    advisory=advisory,
-                    storm_event=result.cv_event,
-                    impact_assessment=result.impact_prediction,
+                verified, provenance = verification_adapter.verify(
+                    advisory,
+                    result.cv_event,
+                    result.impact_prediction,
                 )
                 v_dict = verified.model_dump()
                 p_dict = provenance.model_dump()
@@ -172,7 +177,7 @@ async def run_full_pipeline(storm_id: str, base_dir: str = ".") -> PipelineResul
 
 
 async def stream_full_pipeline(
-    storm_id: str, base_dir: str = "."
+    storm_id: str, base_dir: str | None = None
 ) -> AsyncGenerator[dict, None]:
     """
     Streaming variant — yields events at each pipeline stage.
@@ -180,6 +185,8 @@ async def stream_full_pipeline(
     """
     def now() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    errors: list[str] = []
 
     # ── Step 1: Detection ────────────────────────────────────────────────
     yield {
@@ -190,9 +197,7 @@ async def stream_full_pipeline(
     }
 
     try:
-        from cv.detect import detect
-
-        cv_event = await asyncio.to_thread(detect, storm_id, base_dir)
+        cv_event = await detection_adapter.detect_async(storm_id, base_dir)
         cv_dict = cv_event.model_dump()
         yield {
             "event": "pipeline.stage",
@@ -224,9 +229,7 @@ async def stream_full_pipeline(
 
     impact_dict = None
     try:
-        from ML_after_CV.inference import predict as ml_predict
-
-        impact = await asyncio.to_thread(ml_predict, cv_dict)
+        impact = await prediction_adapter.predict_async(cv_dict)
         impact_dict = impact.model_dump()
         yield {
             "event": "pipeline.stage",
@@ -236,6 +239,7 @@ async def stream_full_pipeline(
             "timestamp": now(),
         }
     except Exception as exc:
+        errors.append(f"Impact prediction failed (non-fatal): {exc}")
         yield {
             "event": "pipeline.stage",
             "stage": "impact_prediction",
@@ -253,8 +257,6 @@ async def stream_full_pipeline(
     }
 
     try:
-        from backend.adapter import adapt_storm_event
-
         genai_event = adapt_storm_event(cv_event)
         yield {
             "event": "pipeline.stage",
@@ -285,12 +287,22 @@ async def stream_full_pipeline(
 
     advisories = []
     try:
-        from genai import stream_pipeline
-
-        async for event in stream_pipeline(genai_event):
+        async for event in advisory_adapter.stream(genai_event):
+            # genai ends its own stream with "pipeline.complete". Forwarded as-is it
+            # collides with this function's terminal event, so a client that stops on
+            # pipeline.complete never sees verification. Re-emit it as the stage-completed
+            # event this step otherwise never sends.
+            if event.get("event") == "pipeline.complete":
+                event = {
+                    "event": "pipeline.stage",
+                    "stage": "advisory_generation",
+                    "status": "completed",
+                    "data": {"total_advisories": event.get("total_advisories", 0)},
+                    "timestamp": event.get("timestamp", now()),
+                }
             yield event
             if event.get("event") == "advisory.generated":
-                from genai.models import AdvisoryOutput
+                from backend.genai.models import AdvisoryOutput
 
                 try:
                     adv = AdvisoryOutput(**event["data"])
@@ -298,6 +310,7 @@ async def stream_full_pipeline(
                 except Exception:
                     pass
     except Exception as exc:
+        errors.append(f"Advisory generation failed: {exc}")
         yield {
             "event": "pipeline.stage",
             "stage": "advisory_generation",
@@ -315,15 +328,13 @@ async def stream_full_pipeline(
             "timestamp": now(),
         }
 
-        from genai.verifier import verify_advisory, verifier_stream_events
+        from backend.genai.verifier import verifier_stream_events
 
         verified_list = []
         for advisory in advisories:
             try:
-                verified, provenance = verify_advisory(
-                    advisory=advisory,
-                    storm_event=cv_dict,
-                    impact_assessment=impact_dict,
+                verified, provenance = verification_adapter.verify(
+                    advisory, cv_dict, impact_dict
                 )
                 verified_list.append(verified)
 
@@ -348,6 +359,7 @@ async def stream_full_pipeline(
                     "provenance_trace": provenance.model_dump(),
                 }
             except Exception as exc:
+                errors.append(f"Verification failed for {advisory.advisory_id}: {exc}")
                 yield {
                     "event": "verifier.error",
                     "advisory_id": advisory.advisory_id,
@@ -378,6 +390,7 @@ async def stream_full_pipeline(
             _ADVISORY_INDEX[v.advisory_id]["provenance_trace"]
             for v in (verified_list if advisories else [])
         ],
+        errors=errors,
         completed_at=now(),
     )
     _RESULTS[storm_id] = result

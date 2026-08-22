@@ -1,5 +1,5 @@
 """
-MLPredictionAdapter — wraps ML_after_CV.inference behind the PredictionPort interface.
+MLPredictionAdapter — wraps backend.ml.inference behind a stable interface.
 
 FallbackPredictionAdapter returns conservative defaults when models are unavailable.
 """
@@ -9,17 +9,16 @@ from __future__ import annotations
 from typing import Any
 
 from backend.logging import get_logger
-from backend.ports.prediction import PredictionPort
 
 log = get_logger("backend.adapters.prediction")
 
 
-class MLPredictionAdapter(PredictionPort):
+class MLPredictionAdapter:
     def __init__(self):
         self._models_loaded = False
 
     def predict(self, storm_dict: dict) -> Any:
-        from ML_after_CV.inference import predict
+        from backend.ml.inference import predict
 
         result = predict(storm_dict)
         self._models_loaded = True
@@ -37,20 +36,19 @@ class MLPredictionAdapter(PredictionPort):
 
     def is_available(self) -> bool:
         try:
-            from ML_after_CV.inference import _load_models
+            from backend.ml.inference import _load_models
 
             _load_models()
-            from ML_after_CV.inference import _MODELS
+            from backend.ml.inference import _MODELS
 
             return len(_MODELS) >= 6
         except Exception:
             return False
 
 
-class FallbackPredictionAdapter(PredictionPort):
+class FallbackPredictionAdapter:
     def __init__(self):
         from pydantic import BaseModel
-        from ML_after_CV.inference import ImpactPrediction
 
         class _Fallback(BaseModel):
             gps_error_m: float = 20.0

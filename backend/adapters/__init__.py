@@ -1,7 +1,7 @@
 """
-Concrete adapter implementations for HelioOps ports.
+Concrete adapter implementations.
 
-Adapters wrap external systems (cv.detect, ML_after_CV, genai) behind
+Adapters wrap external systems (cv.storm_event_generator.detect, ML_after_CV, genai) behind
 the port interfaces, keeping the domain layer clean of infrastructure details.
 """
 

@@ -1,10 +1,9 @@
 """
 backend/app.py — FastAPI server bridging all HelioOps layers.
 
-Architecture: Hexagonal (Ports & Adapters)
-  - Domain logic depends on abstract ports (backend.ports.*)
-  - Adapters (backend.adapters.*) provide concrete implementations
-  - Dependency injection wires adapters to ports at startup
+Architecture: Adapter-wrapped layers
+  - Adapters wrap external systems (cv, ML, genai, supabase)
+  - Dependency injection wires adapters at startup
 
 Endpoints:
     POST /api/detect/{storm_id}    — run full pipeline
@@ -20,15 +19,8 @@ Endpoints:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
-from datetime import datetime, timezone
-from pathlib import Path
-
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).parent.parent / ".env")
 
 from backend.config import settings
 from backend.logging import setup_logging, get_logger
@@ -46,14 +38,7 @@ from backend.middleware import (
     validate_storm_id,
 )
 
-from backend.adapters.detection_adapter import CVDetectionAdapter
-from backend.adapters.prediction_adapter import MLPredictionAdapter
-from backend.adapters.advisory_adapter import (
-    GenAIAdvisoryAdapter,
-    GenAIVerificationAdapter,
-)
 from backend.adapters.repository_adapter import InMemoryResultRepository, SupabaseResultRepository
-from backend.adapters.schema_adapter import adapt_storm_event
 from backend.health import router as health_router
 from backend.health import (
     record_pipeline_request,
@@ -63,7 +48,13 @@ from backend.health import (
     record_advisory_request,
 )
 from backend.health import _requester_metrics
-from backend.pipeline import PipelineResult, get_result, run_full_pipeline, stream_full_pipeline
+from backend.pipeline import (
+    PipelineResult,
+    detection_adapter,
+    get_result,
+    run_full_pipeline,
+    stream_full_pipeline,
+)
 
 app = FastAPI(
     title="HelioOps API",
@@ -82,11 +73,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
 app.include_router(health_router)
-
-detection_adapter = CVDetectionAdapter(available_storm_ids=settings.AVAILABLE_STORM_IDS)
-prediction_adapter = MLPredictionAdapter()
-advisory_adapter = GenAIAdvisoryAdapter()
-verification_adapter = GenAIVerificationAdapter()
 
 
 def _build_result_repository():
@@ -117,17 +103,29 @@ def _persist_result(result: PipelineResult) -> None:
         result.verified_advisories,
         result.provenance_traces,
     ):
-        advisory_id = verified.get("advisory_id")
-        if advisory_id:
-            result_repo.save_advisory(
-                advisory_id,
-                {
-                    "storm_id": result.storm_id,
-                    "advisory": advisory,
-                    "verified_advisory": verified,
-                    "provenance_trace": provenance,
-                },
-            )
+        record = {
+            "storm_id": result.storm_id,
+            "advisory": advisory,
+            "verified_advisory": verified,
+            "provenance_trace": provenance,
+        }
+        # Index under BOTH ids. The verifier mints its own readable id
+        # ("adv_2024-05-G5_aviation_838a16bf") and only that one used to be
+        # stored — but the payload the dashboard renders is the raw advisory,
+        # which carries a UUID. So every lookup driven by what the UI actually
+        # displays (and by api.ts, which documents the param as a UUID) 404'd.
+        advisory_id = _advisory_field(advisory, "advisory_id")
+        verified_id = verified.get("advisory_id") if isinstance(verified, dict) else None
+        for key in {advisory_id, verified_id}:
+            if key:
+                result_repo.save_advisory(key, record)
+
+
+def _advisory_field(advisory, field: str):
+    """Advisories cross this boundary as either a model or an already-dumped dict."""
+    if isinstance(advisory, dict):
+        return advisory.get(field)
+    return getattr(advisory, field, None)
 
 
 def _available_storms() -> list[str]:
@@ -148,6 +146,7 @@ async def detect_storm(storm_id: str):
 
     start = time.monotonic()
     record_pipeline_request()
+    record_detection_request()
     available = _available_storms()
     if storm_id not in available:
         raise HTTPException(
@@ -205,6 +204,7 @@ async def list_storms():
 
 @app.get("/api/advisory/{advisory_id}")
 async def get_advisory_endpoint(advisory_id: str):
+    record_advisory_request()
     data = result_repo.get_advisory(advisory_id)
     if data is None:
         raise HTTPException(

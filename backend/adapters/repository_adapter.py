@@ -7,15 +7,15 @@ without changing any pipeline or API code.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 
-from backend.ports.repository import ResultRepository
-from backend.pipeline import PipelineResult
+if TYPE_CHECKING:
+    from backend.pipeline import PipelineResult
 
 
-class InMemoryResultRepository(ResultRepository):
+class InMemoryResultRepository:
     def __init__(self):
         self._results: dict[str, Any] = {}
         self._advisory_index: dict[str, dict] = {}
@@ -36,7 +36,7 @@ class InMemoryResultRepository(ResultRepository):
         return self._advisory_index.get(advisory_id)
 
 
-class SupabaseResultRepository(ResultRepository):
+class SupabaseResultRepository:
     """PostgREST-backed repository for Supabase tables."""
 
     def __init__(
@@ -235,7 +235,9 @@ class SupabaseResultRepository(ResultRepository):
         advisories: Optional[list[dict]] = None,
         verified_advisories: Optional[list[dict]] = None,
         provenance_traces: Optional[list[dict]] = None,
-    ) -> PipelineResult:
+    ) -> "PipelineResult":
+        from backend.pipeline import PipelineResult
+
         return PipelineResult(
             storm_id=row["storm_id"],
             cv_event=row.get("cv_event") or {},
