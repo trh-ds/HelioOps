@@ -76,3 +76,5 @@ docs/my_my_pitch.md
 # checkpoints came from, 260 KB, and reproducible only because the seed is fixed.
 backend/ml/data/eda_plots/
 backend/data/chroma_db/*
+
+docs\PITCH
