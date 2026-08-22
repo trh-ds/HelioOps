@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from backend.paths import DATA_DIR
+
 import re
 from pathlib import Path
 from uuid import uuid4
 
 import tiktoken
 
-from embeddings.loaders import load_pdf
+from backend.embeddings.loaders import load_pdf
 
 _enc: tiktoken.Encoding | None = None
 
@@ -98,5 +100,5 @@ def chunk_document(
 if __name__ == "__main__":
     import sys
 
-    path = sys.argv[1] if len(sys.argv) > 1 else "data/aviation/nat_doc_007_2025.pdf"
+    path = sys.argv[1] if len(sys.argv) > 1 else str(DATA_DIR / "aviation/nat_doc_007_2025.pdf")
     chunk_document(path)

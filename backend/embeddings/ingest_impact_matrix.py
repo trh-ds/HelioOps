@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from backend.paths import DATA_DIR
+
 import hashlib
 import re
 
-from embeddings.cache import CachedEmbedder, embed_and_upsert, get_redis_client
-from embeddings.chunker import chunk_document
+from backend.embeddings.store import embed_and_upsert
+from backend.embeddings.chunker import chunk_document
 
 _HISTORICAL_YEARS = {"2003", "2017", "2024"}
 
@@ -19,24 +21,21 @@ def _category(text: str, default: str) -> str:
     return default
 
 
-def run(embedder: CachedEmbedder | None = None) -> list[dict]:
-    if embedder is None:
-        embedder = CachedEmbedder(redis_client=get_redis_client())
-
+def run() -> list[dict]:
     # noaa_tech_memo.pdf
-    chunks_memo = chunk_document("data/impact_matrix/noaa_tech_memo.pdf")
+    chunks_memo = chunk_document(str(DATA_DIR / "impact_matrix/noaa_tech_memo.pdf"))
     for chunk in chunks_memo:
         chunk["id"] = _stable_id(chunk["source"], chunk["text"])
         chunk["metadata"] = {"category": _category(chunk["text"], "technical_report")}
 
     # nesdis_impacts.pdf
-    chunks_nesdis = chunk_document("data/impact_matrix/nesdis_impacts.pdf")
+    chunks_nesdis = chunk_document(str(DATA_DIR / "impact_matrix/nesdis_impacts.pdf"))
     for chunk in chunks_nesdis:
         chunk["id"] = _stable_id(chunk["source"], chunk["text"])
         chunk["metadata"] = {"category": _category(chunk["text"], "industry_briefing")}
 
     # noaa_space_weather_scales.txt — split on blank lines, skip tiktoken chunking
-    with open("data/impact_matrix/noaa_space_weather_scales.txt", encoding="utf-8") as f:
+    with open(str(DATA_DIR / "impact_matrix/noaa_space_weather_scales.txt"), encoding="utf-8") as f:
         raw = f.read()
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", raw) if p.strip()]
     chunks_scales = [
@@ -51,7 +50,7 @@ def run(embedder: CachedEmbedder | None = None) -> list[dict]:
     ]
 
     all_chunks = chunks_memo + chunks_nesdis + chunks_scales
-    embed_and_upsert("impact_matrix_kb", all_chunks, embedder=embedder)
+    embed_and_upsert("impact_matrix_kb", all_chunks)
     print(f"Total chunks ingested: {len(all_chunks)}")
     return all_chunks
 

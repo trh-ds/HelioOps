@@ -2,12 +2,12 @@
 Knowledge-base retrieval with Maximal Marginal Relevance (MMR) reranking.
 
 Usage:
-    from embeddings.retrieval import query_kb, format_context, query_all_kbs
+    from backend.embeddings.retrieval import query_kb, format_context, query_all_kbs
 
     results = query_kb("aviation_kb", "G4 storm HF blackout polar route", n_results=5)
     context = format_context(results)
 
-CRITICAL: Always uses embed_query() from embeddings.embedder — never ChromaDB's
+CRITICAL: Always uses embed_query() from backend.embeddings.embedder — never ChromaDB's
 built-in query_texts (that uses MiniLM, a different embedding space).
 """
 
@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from embeddings.collections import get_or_create_collection
-from embeddings.config import COLLECTION_NAMES
-from embeddings.embedder import embed_query
+from backend.embeddings.collections import count_collection, query_collection
+from backend.embeddings.config import COLLECTION_NAMES
+from backend.embeddings.embedder import embed_query
 
 
 def query_kb(
@@ -40,8 +40,7 @@ def query_kb(
     Returns:
         List of dicts with keys: text, source, metadata, distance.
     """
-    collection = get_or_create_collection(collection_name)
-    n_total = collection.count()
+    n_total = count_collection(collection_name, create=True)
     if n_total == 0:
         return []
 
@@ -58,7 +57,7 @@ def query_kb(
     if where is not None:
         query_kwargs["where"] = where
 
-    results = collection.query(**query_kwargs)
+    results = query_collection(collection_name, **query_kwargs)
 
     docs = results["documents"][0]
     metas = results["metadatas"][0]
@@ -120,8 +119,7 @@ def query_all_kbs(query: str, n_per_collection: int = 3) -> dict[str, list[dict]
     """Query all populated collections. Skip empty ones (e.g. telecom_kb = 0 chunks)."""
     out: dict[str, list[dict]] = {}
     for name in COLLECTION_NAMES:
-        c = get_or_create_collection(name)
-        if c.count() == 0:
+        if count_collection(name) == 0:
             print(f"WARNING: {name} skipped -- no data")
             continue
         out[name] = query_kb(name, query, n_results=n_per_collection)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from backend.paths import DATA_DIR
+
 import hashlib
 
-from embeddings.cache import CachedEmbedder, embed_and_upsert, get_redis_client
-from embeddings.chunker import chunk_document
+from backend.embeddings.store import embed_and_upsert
+from backend.embeddings.chunker import chunk_document
 
 
 def _stable_id(source: str, text: str) -> str:
@@ -24,16 +26,13 @@ def _classify(text: str) -> dict:
     return {"category": category, "storm_scale_relevance": storm_scale}
 
 
-def run(embedder: CachedEmbedder | None = None) -> list[dict]:
-    if embedder is None:
-        embedder = CachedEmbedder(redis_client=get_redis_client())
-
-    chunks = chunk_document("data/aviation/nat_doc_007_2025.pdf")
+def run() -> list[dict]:
+    chunks = chunk_document(str(DATA_DIR / "aviation/nat_doc_007_2025.pdf"))
     for chunk in chunks:
         chunk["id"] = _stable_id(chunk["source"], chunk["text"])
         chunk["metadata"] = _classify(chunk["text"])
 
-    embed_and_upsert("aviation_kb", chunks, embedder=embedder)
+    embed_and_upsert("aviation_kb", chunks)
     print(f"Total chunks ingested: {len(chunks)}")
     return chunks
 

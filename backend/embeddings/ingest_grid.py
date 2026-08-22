@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from backend.paths import DATA_DIR
+
 import hashlib
 
-from embeddings.cache import CachedEmbedder, embed_and_upsert, get_redis_client
-from embeddings.chunker import chunk_document
+from backend.embeddings.store import embed_and_upsert
+from backend.embeddings.chunker import chunk_document
 
 _DOCS = {
-    "data/grid/nerc_tpl007_4.pdf": "nerc_standard",
-    "data/grid/nerc_benchmark_gmd.pdf": "gic_benchmark",
-    "data/grid/nerc_transformer_thermal.pdf": "transformer_thermal",
+    str(DATA_DIR / "grid/nerc_tpl007_4.pdf"): "nerc_standard",
+    str(DATA_DIR / "grid/nerc_benchmark_gmd.pdf"): "gic_benchmark",
+    str(DATA_DIR / "grid/nerc_transformer_thermal.pdf"): "transformer_thermal",
 }
 
 
@@ -25,10 +27,7 @@ def _latitude_zone(text: str) -> str:
     return "all"
 
 
-def run(embedder: CachedEmbedder | None = None) -> list[dict]:
-    if embedder is None:
-        embedder = CachedEmbedder(redis_client=get_redis_client())
-
+def run() -> list[dict]:
     all_chunks: list[dict] = []
     for path, category in _DOCS.items():
         chunks = chunk_document(path)
@@ -40,7 +39,7 @@ def run(embedder: CachedEmbedder | None = None) -> list[dict]:
             }
         all_chunks.extend(chunks)
 
-    embed_and_upsert("grid_kb", all_chunks, embedder=embedder)
+    embed_and_upsert("grid_kb", all_chunks)
     print(f"Total chunks ingested: {len(all_chunks)}")
     return all_chunks
 
