@@ -1,0 +1,20 @@
+# Tests, linting, and the offline pipelines. Not installed in the deployed image.
+-r requirements.txt
+
+pytest>=8.0
+pytest-asyncio>=0.23
+ruff>=0.4
+
+# Knowledge-base ingest (backend/embeddings/ingest_*.py)
+pypdf>=4.0
+pdfplumber>=0.11
+
+# Coronagraph FITS download (backend/cv/data_ingestion/cache_fits.py)
+# The CCOR-1 path also shells out to the AWS CLI, which is not a pip package.
+sunpy>=5.1
+
+# Model training (backend/ml/0*.py)
+scikit-learn>=1.4
+optuna>=3.6
+matplotlib>=3.8
+seaborn>=0.13
