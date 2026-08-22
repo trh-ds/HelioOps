@@ -538,12 +538,16 @@
 }
 .flow-pulse-2 { animation-delay: 3.75s; opacity: 0.55; }
 
+/* Travel ENDS on the operator node - the signal is consumed there, it does not
+   run off the end of the rail. The rail is inset 4% either side of .flow while
+   the node grid spans the full width, so the last of seven nodes lands at
+   ((6.5/7) - 0.04) / 0.92 = 96.6% of the rail, not 100%.
+   Opacity holds until 86% and then dissipates into that node. */
 @keyframes flowRun {
   0%   { transform: translateX(0); opacity: 0; }
-  3%   { opacity: 1; }
-  97%  { opacity: 1; }
-  /* +116px so the dash clears the right edge before it cuts. */
-  100% { transform: translateX(calc(100% + 116px)); opacity: 0; }
+  4%   { opacity: 1; }
+  86%  { opacity: 1; }
+  100% { transform: translateX(96.6%); opacity: 0; }
 }
 
 /* Nodes sit on the rail. */
@@ -573,14 +577,12 @@
   border: 1px solid rgba(160, 150, 235, 0.85);
   box-shadow: 0 0 0 3px rgba(10, 9, 23, 1);
   margin-top: -22px;
-  /* Node i sits at (i + 0.5)/7 of the rail, and the pulse covers rail+116px in
-     7.5s - so its per-node step is (1/7)(rail/(rail+116))(7.5s), ~0.97s at the
-     widths this page renders at. The 0.19s offset leads by the 0.3s that
-     flowBlip takes to reach its own peak, minus half a step.
-     (The ratio shifts slightly with viewport width; residual drift across the
-     whole rail stays under a tenth of a second, which is not visible.) */
+  /* The pulse now spans node 0 to node 6 over the full 7.5s, so the nodes are
+     evenly spaced in TIME as well as space: 7.5 / 6.5 steps = 1.21s apart. No
+     offset needed - the 0.3s flowBlip takes to peak already covers the lead to
+     the first node. Width-independent, unlike the previous timing. */
   animation: flowBlip 7.5s linear infinite;
-  animation-delay: calc(var(--i, 0) * 0.97s + 0.19s);
+  animation-delay: calc(var(--i, 0) * 1.21s);
 }
 @keyframes flowBlip {
   0%, 88%, 100% { border-color: rgba(160, 150, 235, 0.5); transform: scale(1); }
@@ -589,7 +591,18 @@
 }
 
 .flow-node-src .flow-dot { border-color: rgba(243, 171, 92, 0.9); animation: none; }
-.flow-node-out .flow-dot { border-color: #8de3b0; animation: none; }
+/* The outlet blips green as the pulse lands on it - that arrival is the whole
+   point of the loop, so it should not be the one node that stays inert. */
+.flow-node-out .flow-dot {
+  border-color: rgba(141, 227, 176, 0.55);
+  animation: flowBlipOut 7.5s linear infinite;
+  animation-delay: calc(6 * 1.21s);
+}
+@keyframes flowBlipOut {
+  0%, 88%, 100% { border-color: rgba(141, 227, 176, 0.55); transform: scale(1); }
+  4%            { border-color: #8de3b0; transform: scale(1.6); }
+  16%           { border-color: rgba(141, 227, 176, 0.55); transform: scale(1); }
+}
 .is-verifier .flow-dot { border-color: #f3ab5c; }
 
 .flow-n {
@@ -641,7 +654,7 @@
   border: 1px solid rgba(199, 206, 255, 0.14);
   border-radius: 2px;
   animation: flowTraceGlow 7.5s linear infinite;
-  animation-delay: calc(var(--i, 0) * 1.14s);
+  animation-delay: calc(var(--i, 0) * 1.21s);
 }
 .flow-trace-step + .flow-trace-step { position: relative; }
 .flow-trace-step + .flow-trace-step::before {
