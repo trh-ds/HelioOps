@@ -10,7 +10,7 @@ pinned: false
 
 <div align="center">
 
-# ☀️ HelioOps
+# HelioOps
 
 ### From coronagraph pixels to a cited, machine-verified operator instruction — in one pipeline.
 
@@ -26,11 +26,11 @@ critical infrastructure, and hands operators regulator-cited action lists with a
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-918_chunks-FF6B35?style=for-the-badge)](https://trychroma.com)
 [![Groq](https://img.shields.io/badge/Groq-gpt--oss--120b-F55036?style=for-the-badge)](https://groq.com)
 
-[![Tests](https://img.shields.io/badge/tests-271_passing-success?style=flat-square&logo=pytest)](#-quality-gates)
-[![Lint](https://img.shields.io/badge/ruff-clean-success?style=flat-square)](#-quality-gates)
-[![Layers](https://img.shields.io/badge/layers-CV_→_ML_→_GenAI_→_Verifier-blue?style=flat-square)](#-the-pipeline)
-[![Deploy](https://img.shields.io/badge/deploy-HF_Spaces_+_Vercel-yellow?style=flat-square&logo=huggingface)](#-deployment)
-[![GPU](https://img.shields.io/badge/GPU_required-none-brightgreen?style=flat-square)](#-cost-profile)
+[![Tests](https://img.shields.io/badge/tests-271_passing-success?style=flat-square&logo=pytest)](#quality-gates)
+[![Lint](https://img.shields.io/badge/ruff-clean-success?style=flat-square)](#quality-gates)
+[![Layers](https://img.shields.io/badge/layers-CV_→_ML_→_GenAI_→_Verifier-blue?style=flat-square)](#the-pipeline)
+[![Deploy](https://img.shields.io/badge/deploy-HF_Spaces_+_Vercel-yellow?style=flat-square&logo=huggingface)](#deployment)
+[![GPU](https://img.shields.io/badge/GPU_required-none-brightgreen?style=flat-square)](#cost-profile)
 
 <br/>
 
@@ -40,16 +40,16 @@ critical infrastructure, and hands operators regulator-cited action lists with a
 
 ---
 
-## 🌍 The problem
+## The problem
 
 When the Sun throws a coronal mass ejection at Earth, four industries lose capability within hours.
 
-| | Industry | What breaks | Operational consequence |
-|:--:|---|---|---|
-| ✈️ | **Aviation** | HF radio over polar routes, GPS accuracy, crew radiation dose | Polar tracks close; flights reroute or cancel |
-| ⚡ | **Power grid** | Geomagnetically induced currents in transformers | Transformer heating, voltage instability, blackout risk |
-| 🚢 | **Maritime** | GMDSS distress comms, GNSS positioning | Degraded safety-of-life comms in remote waters |
-| 📡 | **Telecom** | HF / satellite links, timing signals | Link outages, timing drift |
+| Industry | What breaks | Operational consequence |
+|---|---|---|
+| **Aviation** | HF radio over polar routes, GPS accuracy, crew radiation dose | Polar tracks close; flights reroute or cancel |
+| **Power grid** | Geomagnetically induced currents in transformers | Transformer heating, voltage instability, blackout risk |
+| **Maritime** | GMDSS distress comms, GNSS positioning | Degraded safety-of-life comms in remote waters |
+| **Telecom** | HF / satellite links, timing signals | Link outages, timing drift |
 
 The raw signal is already free — NOAA/SWPC alerts, NASA DONKI kinematics, GOES X-ray flares, DSCOVR
 solar wind at L1. **The last mile is what does not exist:**
@@ -63,13 +63,13 @@ X  Nothing is auditable        ->  regulated operators cannot act on output they
 
 ---
 
-## 🔭 The pipeline
+## The pipeline
 
 Five stages. **Deterministic where safety demands it, generative only where language is needed.**
 
 ```mermaid
 flowchart TD
-    A["🛰️ <b>Solar imagery</b><br/>CCOR-1 / LASCO FITS<br/>+ DONKI · GOES XRS · DSCOVR L1"]
+    A["<b>Solar imagery</b><br/>CCOR-1 / LASCO FITS<br/>+ DONKI · GOES XRS · DSCOVR L1"]
 
     A --> B["<b>① CV DETECTION</b><br/>9-step threshold detector — no RNG, no weights<br/>fused with NASA physics<br/><i>→ StormEvent: confidence, G/S/R scales, kinematics</i>"]
 
@@ -94,7 +94,7 @@ flowchart TD
 
 ---
 
-## ⚡ Quickstart
+## Quickstart
 
 ```bash
 # ── Backend ──────────────────────────────────────────────
@@ -120,57 +120,57 @@ Two anchor storms replay deterministically: **`2024-10-G4`** and **`2024-05-G5`*
 
 ---
 
-## 🗂️ Repository map
+## Repository map
 
 Three folders. One deployable unit.
 
 ```
 HelioOps/
-├── 📦 backend/                    FastAPI monolith — all four layers, one process
-│   ├── app.py                     routes · CORS · middleware · WebSocket manager
-│   ├── pipeline.py                5-stage orchestration; owns the adapter singletons
-│   ├── paths.py                   every runtime path — never resolved from cwd
-│   ├── health.py                  3-tier health + Prometheus /metrics
-│   ├── preflight.py               🔍 read-only pre-run conflict check — never fetches, never mkdirs
-│   ├── middleware.py              security headers · request IDs · rate limit · validation
+├── backend/                        FastAPI monolith — all four layers, one process
+│   ├── app.py                      routes · CORS · middleware · WebSocket manager
+│   ├── pipeline.py                 5-stage orchestration; owns the adapter singletons
+│   ├── paths.py                    every runtime path — never resolved from cwd
+│   ├── health.py                   3-tier health + Prometheus /metrics
+│   ├── preflight.py                read-only pre-run conflict check — never fetches, never mkdirs
+│   ├── middleware.py               security headers · request IDs · rate limit · validation
 │   │
-│   ├── 🔭 cv/                     LAYER 1 — deterministic CME detection
-│   │   ├── data_ingestion/              FITS cache · DONKI · GOES flare · DSCOVR L1
-│   │   ├── image_threshold_algorithm/   preprocessing + the 9-step detector
-│   │   ├── storm_event_generator/       fusion -> StormEvent (the downstream contract)
-│   │   └── stubs/                       deterministic fallback events
+│   ├── cv/                         LAYER 1 — deterministic CME detection
+│   │   ├── data_ingestion/         FITS cache · DONKI · GOES flare · DSCOVR L1
+│   │   ├── image_threshold_algorithm/  preprocessing + the 9-step detector
+│   │   ├── storm_event_generator/  fusion -> StormEvent (the downstream contract)
+│   │   └── stubs/                  deterministic fallback events
 │   │
-│   ├── 📈 ml/                     LAYER 2 — quantile impact regression
-│   │   ├── 01_data_generation_eda.py    synthetic set (seed 42) + EDA plots
-│   │   ├── 02_train_and_tune.py         Optuna TPE -> 6 checkpoints
-│   │   ├── 03_anchor_test.py            physics gate — exits non-zero on failure
-│   │   ├── inference.py                 the serving path
-│   │   └── checkpoints/                 6 x .pkl, 527 KB total
+│   ├── ml/                         LAYER 2 — quantile impact regression
+│   │   ├── 01_data_generation_eda.py  synthetic set (seed 42) + EDA plots
+│   │   ├── 02_train_and_tune.py    Optuna TPE -> 6 checkpoints
+│   │   ├── 03_anchor_test.py       physics gate — exits non-zero on failure
+│   │   ├── inference.py            the serving path
+│   │   └── checkpoints/            6 x .pkl, 527 KB total
 │   │
-│   ├── 🤖 genai/                  LAYER 3+4 — advisory generation + verification
-│   │   ├── agents/                aviation · grid · maritime · telecom
-│   │   ├── prompts/               one prompt module per industry
-│   │   ├── orchestrator.py        parallel fan-out + streaming
-│   │   ├── retriever.py           RAG over the rulebooks
-│   │   ├── guardrails.py          schema · citations · self-check · safety flags
-│   │   ├── verifier.py            🛡️ the zero-LLM rule engine
-│   │   └── llm.py                 the ONLY Groq call site
+│   ├── genai/                      LAYER 3+4 — advisory generation + verification
+│   │   ├── agents/                 aviation · grid · maritime · telecom
+│   │   ├── prompts/                one prompt module per industry
+│   │   ├── orchestrator.py         parallel fan-out + streaming
+│   │   ├── retriever.py            RAG over the rulebooks
+│   │   ├── guardrails.py           schema · citations · self-check · safety flags
+│   │   ├── verifier.py             the zero-LLM rule engine
+│   │   └── llm.py                  the ONLY Groq call site
 │   │
-│   ├── 🔎 embeddings/             BGE-small · chunkers · 5 ingest CLIs · one Chroma client
-│   ├── 🔌 adapters/               the seam — detection · prediction · advisory · repo · schema
-│   ├── 💾 data/                   knowledge bases + chroma_db (918 chunks) + impact matrix
-│   └── 🧪 tests/                  271 tests across 11 modules
+│   ├── embeddings/                 BGE-small · chunkers · 5 ingest CLIs · one Chroma client
+│   ├── adapters/                   the seam — detection · prediction · advisory · repo · schema
+│   ├── data/                       knowledge bases + chroma_db (918 chunks) + impact matrix
+│   └── tests/                      271 tests across 11 modules
 │
-├── 🚀 deployment/                 Dockerfile.backend · Dockerfile.frontend · compose · supabase/
-├── 🖥️ frontend/                   Vite + React 18 SPA — marketing pages + live console
-│   └── src/                       Home · Problem · Industries · About · Dashboard (three.js globe)
-├── 📄 Dockerfile                  Hugging Face Spaces build (repo root — NOT deployment/)
-└── 📚 docs/                       product brief · deep dive · CV+ML Q&A · deploy runbooks
+├── deployment/                     Dockerfile.backend · Dockerfile.frontend · compose · supabase/
+├── frontend/                       Vite + React 18 SPA — marketing pages + live console
+│   └── src/                        Home · Problem · Industries · About · Dashboard (three.js globe)
+├── Dockerfile                      Hugging Face Spaces build (repo root — NOT deployment/)
+└── docs/                           product brief · deep dive · CV+ML Q&A · deploy runbooks
 ```
 
 ---
 
-## 🌐 API surface
+## API surface
 
 | | Endpoint | What it does |
 |:--:|---|---|
@@ -195,7 +195,7 @@ completes, and a mismatch closes with code **`4003`** — not a CORS error.
 
 ---
 
-## 🏛️ Architecture — hexagonal, one process
+## Architecture — hexagonal, one process
 
 `backend/pipeline.py` **never imports `cv` / `ml` / `genai` directly.** It calls four adapter
 instances it owns at module level; `app.py` imports those same instances. There is exactly one of
@@ -203,24 +203,24 @@ each in the process.
 
 ```mermaid
 flowchart LR
-    subgraph EDGE["🌐 Edge"]
+    subgraph EDGE["Edge"]
         REST["REST<br/>/api/detect"]
         WS["WebSocket<br/>/ws/stream"]
     end
 
-    subgraph CORE["⬡ Hexagonal core"]
+    subgraph CORE["Hexagonal core"]
         PIPE["backend/pipeline.py<br/><i>run_full_pipeline<br/>stream_full_pipeline</i>"]
         ADP["backend/adapters/<br/><i>detection · prediction<br/>advisory · verification<br/>schema · repository</i>"]
     end
 
-    subgraph LAYERS["🔬 Domain layers"]
+    subgraph LAYERS["Domain layers"]
         CV["cv.storm_event_generator<br/><i>detect()</i>"]
         ML["ml.inference<br/><i>predict()</i>"]
         GEN["genai.orchestrator<br/><i>run_pipeline()</i>"]
         VER["genai.verifier<br/><i>verify()</i>"]
     end
 
-    subgraph STORE["💾 Storage"]
+    subgraph STORE["Storage"]
         MEM["InMemory<br/><i>default</i>"]
         SUP["Supabase<br/>Postgres + RLS"]
     end
@@ -256,7 +256,7 @@ instead of smeared across four modules owned by four people.
 
 ---
 
-## 🔬 The four layers
+## The four layers
 
 <details>
 <summary><b>① Computer Vision — deterministic CME detection</b> &nbsp;·&nbsp; <i>click to expand</i></summary>
@@ -313,8 +313,8 @@ StormEvent  ──►  ┌ gps_q025 ┐              GPS L1 error   11.23 m
 
 | Target | PICP *(nominal 95%)* | PINAW *(the cost of that coverage)* |
 |---|:--:|:--:|
-| GPS L1 error | **95.90%** ✅ | 0.0369 |
-| HF blackout probability | **94.21%** ✅ | 0.1941 |
+| GPS L1 error | **95.90%** | 0.0369 |
+| HF blackout probability | **94.21%** | 0.1941 |
 
 Both land within ~1 point of nominal at a narrow width — which is the entire claim the quantile
 objective makes. PICP alone is trivially gamed (predicting `(−∞, +∞)` scores 100% and is useless);
@@ -332,7 +332,7 @@ LightGBM early stopping. `03_anchor_test.py` is a **physics gate** — a G5 floo
 *and* severity ordering — and it **exits non-zero on failure**, because a constant model passes any
 single-storm floor.
 
-> ⚠️ **Read the R² honestly.** The models train on 4,800 **synthetic** rows (120 storms × 40 frames,
+> **Read the R² honestly.** The models train on 4,800 **synthetic** rows (120 storms × 40 frames,
 > seed 42, committed). The reported R² measures how well LightGBM recovers hand-written,
 > physics-shaped rules — **not** forecast skill against real space weather. What *is* non-circular:
 > the interval calibration above, and the ordering gate. Full methodology in
@@ -350,10 +350,10 @@ Four agents fan out in parallel, each with its own prompt module and its own kno
 ```mermaid
 flowchart TD
     SE["StormEvent + ImpactPrediction"] --> R{{"impact_router.py<br/><i>which industries are affected?</i>"}}
-    R --> AV["✈️ aviation agent"]
-    R --> GR["⚡ grid agent"]
-    R --> MA["🚢 maritime agent"]
-    R --> TE["📡 telecom agent"]
+    R --> AV["aviation agent"]
+    R --> GR["grid agent"]
+    R --> MA["maritime agent"]
+    R --> TE["telecom agent"]
 
     AV --> KB1[("aviation_kb<br/><b>242</b> chunks<br/><i>ICAO NAT Doc 007</i>")]
     GR --> KB2[("grid_kb<br/><b>101</b> chunks<br/><i>NERC TPL-007-4</i>")]
@@ -361,11 +361,11 @@ flowchart TD
     TE --> KB4[("telecom_kb<br/><b>195</b> chunks")]
     R -.severity lookup.-> KB5[("impact_matrix_kb<br/><b>166</b> chunks")]
 
-    KB1 --> G["🛡️ guardrails.py<br/>schema · citations · self-check · flags"]
+    KB1 --> G["guardrails.py<br/>schema · citations · self-check · flags"]
     KB2 --> G
     KB3 --> G
     KB4 --> G
-    G --> V["🛡️ verifier.py"]
+    G --> V["verifier.py"]
 
     style R fill:#16213e,stroke:#f39c12,color:#fff
     style G fill:#16213e,stroke:#e74c3c,stroke-width:2px,color:#fff
@@ -411,7 +411,7 @@ The canonical case — the **21 MHz block**:
                           │
   tested against  ▸  ICAO_NAT_HF_BANDS_MHZ = {3, 5, 8, 11, 17}
                           │
-             ❌ REJECTED — 21 is not in the ICAO NAT valid set
+                REJECTED - 21 is not in the ICAO NAT valid set
                           │
   rewritten to    ▸  "Switch HF to 5 MHz for polar operations"    (G4+ default backup band)
                           │
@@ -441,7 +441,7 @@ instead of guessing. Groq entirely down → detection and impact prediction stil
 
 ---
 
-## 🔍 Pre-flight — knowing what a run will do *before* it does it
+## Pre-flight — knowing what a run will do *before* it does it
 
 A 65–80 second pipeline run that quietly falls back to a stub, or stalls on an exhausted token
 budget, is worse than one that fails: the output looks identical either way.
@@ -449,7 +449,7 @@ budget, is worse than one that fails: the output looks identical either way.
 
 ```mermaid
 flowchart TD
-    R["👤 Operator clicks Run"] --> P["GET /api/preflight/{storm_id}<br/><i>read-only — never fetches, never mkdirs</i>"]
+    R["Operator clicks Run"] --> P["GET /api/preflight/{storm_id}<br/><i>read-only — never fetches, never mkdirs</i>"]
 
     P --> F1["<b>Predicted fallbacks</b><br/>stub replay · missing DONKI /<br/>flare / L1 / alert caches"]
     P --> F2["<b>Cross-source conflicts</b><br/>4 physics rules, run with the<br/><i>same parsers the real run uses</i>"]
@@ -487,7 +487,7 @@ Three design constraints make this trustworthy rather than decorative:
 
 ---
 
-## 🛡️ Safety engineering
+## Safety engineering
 
 ```mermaid
 flowchart LR
@@ -518,17 +518,17 @@ originally propose before correction? what was the retrieval similarity? which s
 
 ---
 
-## 📊 Why choose it
+## Why choose it
 
 | | Raw NOAA alerts | Generic LLM assistant | Consultancy desk | **HelioOps** |
 |---|:--:|:--:|:--:|:--:|
-| Per-industry actions | ❌ | 〰️ | ✅ | ✅ |
-| Grounded in real rulebooks | ❌ | ❌ | ✅ | ✅ *(ICAO / NERC / IMO / NOAA)* |
-| Safety-critical values verified | — | ❌ | 〰️ | ✅ *(deterministic rule engine)* |
-| Quantified uncertainty | ❌ | ❌ | 〰️ | ✅ *(95% CIs, measured coverage)* |
-| Full audit trail | ❌ | ❌ | 〰️ | ✅ *(6-step provenance)* |
-| Reproducible | ✅ | ❌ | ❌ | ✅ *(no RNG in detection or routing)* |
-| Real time | ✅ | — | ❌ | ✅ *(WebSocket streaming)* |
+| Per-industry actions | No | Partial | Yes | **Yes** |
+| Grounded in real rulebooks | No | No | Yes | **Yes** *(ICAO / NERC / IMO / NOAA)* |
+| Safety-critical values verified | n/a | No | Partial | **Yes** *(deterministic rule engine)* |
+| Quantified uncertainty | No | No | Partial | **Yes** *(95% CIs, measured coverage)* |
+| Full audit trail | No | No | Partial | **Yes** *(6-step provenance)* |
+| Reproducible | Yes | No | No | **Yes** *(no RNG in detection or routing)* |
+| Real time | Yes | n/a | No | **Yes** *(WebSocket streaming)* |
 | Cost to run | free | low | very high | low |
 
 **Three things are genuinely hard to copy:**
@@ -540,7 +540,7 @@ originally propose before correction? what was the retrieval similarity? which s
 
 ---
 
-## 💰 Cost profile
+## Cost profile
 
 **Runs entirely on CPU.** No GPU for detection *(threshold algorithm)*, none for impact
 *(LightGBM)*, none for embeddings *(BGE-small, 384-dim)*. The only external paid dependency is the
@@ -554,14 +554,14 @@ GPU hours                  0
 
 ---
 
-## 🚀 Deployment
+## Deployment
 
 One stateless container — a single FastAPI process, no queue, no worker, no second service.
 
 ```mermaid
 flowchart LR
-    U["👤 Operator"] --> V["▲ Vercel<br/><i>frontend/ — static Vite build</i>"]
-    V -->|"VITE_API_URL<br/>inlined at BUILD time"| H["🤗 HF Spaces<br/><i>root Dockerfile · port 7860</i>"]
+    U["Operator"] --> V["▲ Vercel<br/><i>frontend/ — static Vite build</i>"]
+    V -->|"VITE_API_URL<br/>inlined at BUILD time"| H["HF Spaces<br/><i>root Dockerfile · port 7860</i>"]
     H --> C[("ChromaDB<br/>read from image")]
     H --> M[("6 × .pkl<br/>read from image")]
     H -->|default| I[("In-memory results")]
@@ -573,11 +573,11 @@ flowchart LR
 
 | Target | Status | Notes |
 |---|:--:|---|
-| Frontend → **Vercel** | 🟢 live | `frontend-olive-six-50.vercel.app` |
-| Backend → **HF Spaces** | 🟡 build-ready | root `Dockerfile`, free CPU tier |
+| Frontend → **Vercel** | Live | `frontend-olive-six-50.vercel.app` |
+| Backend → **HF Spaces** | Build-ready | root `Dockerfile`, free CPU tier |
 | Also runs on | — | Cloud Run · Fly · Render, all with scale-to-zero |
 
-> ⚠️ **Two deployment gotchas worth knowing.**
+> **Two deployment gotchas worth knowing.**
 > **(1)** HF Spaces builds the **repo-root `Dockerfile`** — `deployment/Dockerfile.backend` is never
 > picked up there; the two are kept in step by hand.
 > **(2)** The frontend API base is **`VITE_API_URL`**, inlined at *build* time — a runtime env var
@@ -592,7 +592,7 @@ Runbooks: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) ·
 
 ---
 
-## ✅ Quality gates
+## Quality gates
 
 ```bash
 PYTHONPATH=. pytest backend/tests -q                      # 271 tests
@@ -606,7 +606,7 @@ cd frontend && npm test                                   # data contract test
 | `test_pipeline.py` | schema adaptation · full pipeline · **WS event contract** · standalone-import guard |
 | `test_option_c.py` | detector geometry · flare/DONKI math · the `fuse()` contract |
 | `test_cv_preprocessing.py` | FITS fixes · **batch png/diff layout round-trip** |
-| `test_runtime_paths.py` | 🔴 **chroma path resolution** — the bug that silently emptied every KB |
+| `test_runtime_paths.py` | **chroma path resolution** — the bug that silently emptied every KB |
 | `test_verifier.py` | the ICAO / GMDSS rule engine |
 | `test_security.py` · `test_middleware.py` | headers · rate limit · validation · CORS |
 | `test_retrieval.py` · `test_llm_ratelimit.py` | RAG liveness · TPM key-pool behaviour |
@@ -618,24 +618,24 @@ CI (`.github/workflows/ci.yml`): `lint-backend` → `test-backend` → `docker-b
 
 ---
 
-## 🎯 Current maturity — stated plainly
+## Current maturity — stated plainly
 
 **Production-shaped, not yet production-proven.** What is real, and what is not:
 
-✅ **Real:** the detection algorithm · the DONKI/GOES/DSCOVR integrations · the trained models and
+**Real:** the detection algorithm · the DONKI/GOES/DSCOVR integrations · the trained models and
 their calibration metrics · the four-agent pipeline · the verifier · the API · the console · the
 Supabase schema · 271 passing tests.
 
-⚠️ **Caveats worth knowing before deploying:**
+**Caveats worth knowing before deploying:**
 
-| | Caveat |
-|:--:|---|
-| 🔬 | **Impact models are trained on synthetic data.** R² measures rule-recovery, not forecast skill. The real-data track *was* built against NASA OMNI2 and then **deleted** — permanently blocked on labels that no public dataset supplies in the required form (IONEX / GOES XRS+SEP). The design notes survive in git history. |
-| 🎬 | **Two demo storms** are wired for replay. Live mode exists; the cached path is what the demo runs. |
-| 🖼️ | **No cached FITS/PNGs in the repo** (gitignored, too large) — `detect()` falls back to `backend/cv/stubs/*.json` until `cache_fits` + `preprocessing` are run. |
-| ⏱️ | **`/api/detect` takes 65–80 s**, not the 8–15 s once documented. Groq's `gpt-oss-120b` reasoning pass dominates; host CPU is nearly irrelevant. |
-| 📉 | **Rate limiting and metrics are per-process** — correct on a single replica; they need a shared store before horizontal scaling means anything. |
-| 🐛 | **Known flake:** `test_retrieval.py` fails ~1 full-suite run in 3 with a chromadb segment-reader `InternalError`. Passes standalone (11/11) and KB counts stay correct — a pre-existing chromadb bug, mitigated by a retry, not fixed. |
+| Caveat |
+|---|
+| **Impact models are trained on synthetic data.** R² measures rule-recovery, not forecast skill. The real-data track *was* built against NASA OMNI2 and then **deleted** — permanently blocked on labels that no public dataset supplies in the required form (IONEX / GOES XRS+SEP). The design notes survive in git history. |
+| **Two demo storms** are wired for replay. Live mode exists; the cached path is what the demo runs. |
+| **No cached FITS/PNGs in the repo** (gitignored, too large) — `detect()` falls back to `backend/cv/stubs/*.json` until `cache_fits` + `preprocessing` are run. |
+| **`/api/detect` takes 65–80 s**, not the 8–15 s once documented. Groq's `gpt-oss-120b` reasoning pass dominates; host CPU is nearly irrelevant. |
+| **Rate limiting and metrics are per-process** — correct on a single replica; they need a shared store before horizontal scaling means anything. |
+| **Known flake:** `test_retrieval.py` fails ~1 full-suite run in 3 with a chromadb segment-reader `InternalError`. Passes standalone (11/11) and KB counts stay correct — a pre-existing chromadb bug, mitigated by a retry, not fixed. |
 
 **Failure is designed in, not discovered.** Every layer degrades instead of collapsing:
 
@@ -649,7 +649,7 @@ Groq entirely down      ->  detection + impact still serve
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 | Doc | For |
 |---|---|
@@ -662,7 +662,7 @@ Groq entirely down      ->  detection + impact still serve
 
 ---
 
-## 🔧 Offline pipelines
+## Offline pipelines
 
 Not needed to serve — their output is committed.
 
@@ -684,7 +684,7 @@ PYTHONPATH=. python backend/ml/03_anchor_test.py            # physics gate
 
 ---
 
-## 👥 Team
+## Team
 
 | Owner | Layer |
 |---|---|
