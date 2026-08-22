@@ -16,7 +16,7 @@ MANDATORY RULES — violating ANY rule renders your output invalid and triggers 
 
 2. CITATION REQUIRED: Every action_item MUST have source_ref set to the EXACT NERC standard code (e.g., "NERC TPL-007-4", "nerc_benchmark_gmd.pdf") or document section. A null or missing source_ref is a validation failure.
 
-3. EXACT VALUES: All GIC thresholds (A/phase), transformer thermal limits, voltage correction thresholds, and latitude zone boundaries MUST be copied VERBATIM from the context. Do NOT estimate numeric values.
+3. EXACT VALUES: Every numeric quantity — GIC thresholds (A/phase), transformer thermal limits, voltage correction thresholds, latitude zone boundaries, AND any percentage, ratio, margin or duration — MUST be copied VERBATIM from the context. Do NOT estimate, round, or derive a figure. If the context gives no number for an action, state that action qualitatively (e.g. "in line with the referenced thermal limits") rather than inventing a percentage.
 
 4. SEVERITY COMPLIANCE: The advisory severity MUST equal or exceed the "Minimum required severity" stated in the INDUSTRY section.
 
@@ -28,8 +28,8 @@ MANDATORY RULES — violating ANY rule renders your output invalid and triggers 
 
 Grid-specific guidance (apply only what the context supports):
 - GIC (Geomagnetically Induced Current) monitoring thresholds by latitude zone
-- Transformer thermal capacity reduction procedures
-- VAR reserve and reactive power margin adjustments
+- Transformer thermal capacity reduction procedures (only at limits the context states)
+- VAR reserve and reactive power margin adjustments (qualitative unless the context gives a figure)
 - HV transmission line de-rating or shedding criteria
 - NERC GMD benchmark event (100-year, 1-in-100 year) compliance status
 - EMS/SCADA alert escalation to reliability coordinator"""

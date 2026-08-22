@@ -5,7 +5,7 @@ Checks every operational number in an advisory against authoritative rulebooks
 before dispatch. This is WOW #2 in the demo: the 21 MHz block.
 
 Usage:
-    from genai.verifier import verify_advisory
+    from backend.genai.verifier import verify_advisory
     verified, provenance = verify_advisory(advisory, storm_event, impact_assessment)
 
 Verifier behavior:
@@ -18,16 +18,15 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
 
-from genai.contracts import (
+from backend.genai.contracts import (
     ProvenanceStep,
     ProvenanceTrace,
     VerifiedAdvisory,
     VerifierCheck,
     VerifierResult,
 )
-from genai.models import AdvisoryOutput
+from backend.genai.models import AdvisoryOutput
 
 
 # ── Authoritative Rule Tables ────────────────────────────────────────────────
@@ -82,6 +81,13 @@ def _check_hf_frequencies(action: str, g_scale: int) -> list[tuple[VerifierCheck
     """Check HF frequencies mentioned in an action string against ICAO valid set."""
     checks: list[tuple[VerifierCheck, str]] = []
 
+    # Corrections accumulate. Each returned text is derived from the previous
+    # one, not from the original: verify_advisory keeps only the last corrected
+    # string, so computing every correction against `action` meant an action
+    # naming two invalid frequencies had the first correction silently
+    # discarded and shipped with one bad value still in it.
+    current = action
+
     # Match patterns like "21 MHz", "5MHz", "8 mhz"
     for match in re.finditer(r"(\d+)\s*MHz", action, re.IGNORECASE):
         freq = int(match.group(1))
@@ -89,7 +95,7 @@ def _check_hf_frequencies(action: str, g_scale: int) -> list[tuple[VerifierCheck
         if freq in ICAO_NAT_HF_BANDS_MHZ:
             checks.append((
                 VerifierCheck(field="hf_band", proposed=freq, status="pass"),
-                action,
+                current,
             ))
         else:
             # For G4+ storms, correct to 5 MHz (ICAO default backup band)
@@ -100,8 +106,8 @@ def _check_hf_frequencies(action: str, g_scale: int) -> list[tuple[VerifierCheck
                 corrected = min(ICAO_NAT_HF_BANDS_MHZ, key=lambda b: abs(b - freq))
 
             reason = f"{freq} MHz not in ICAO NAT valid set {sorted(ICAO_NAT_HF_BANDS_MHZ)}"
-            corrected_action = action.replace(f"{freq} MHz", f"{corrected} MHz")
-            corrected_action = corrected_action.replace(f"{freq}MHz", f"{corrected} MHz")
+            current = current.replace(f"{freq} MHz", f"{corrected} MHz")
+            current = current.replace(f"{freq}MHz", f"{corrected} MHz")
 
             checks.append((
                 VerifierCheck(
@@ -111,7 +117,7 @@ def _check_hf_frequencies(action: str, g_scale: int) -> list[tuple[VerifierCheck
                     corrected_to=corrected,
                     reason=reason,
                 ),
-                corrected_action,
+                current,
             ))
 
     return checks
@@ -127,6 +133,8 @@ def _check_reroute_latitude(action: str, g_scale: int) -> list[tuple[VerifierChe
     if threshold is None:
         return checks
 
+    current = action  # corrections accumulate — see _check_hf_frequencies
+
     # Match patterns like "70°N", "78 N", "70N"
     for match in re.finditer(r"(\d+)\s*°?\s*N", action):
         lat = int(match.group(1))
@@ -137,16 +145,14 @@ def _check_reroute_latitude(action: str, g_scale: int) -> list[tuple[VerifierChe
         if lat <= threshold:
             checks.append((
                 VerifierCheck(field="reroute_latitude", proposed=lat, status="pass"),
-                action,
+                current,
             ))
         else:
             reason = (
                 f"Reroute latitude {lat}°N exceeds G{g_scale} threshold of {threshold}°N. "
                 f"ICAO requires routes below {threshold}°N for G{g_scale}+ storms."
             )
-            corrected_action = action.replace(
-                match.group(0), f"{threshold}°N"
-            )
+            current = current.replace(match.group(0), f"{threshold}°N")
             checks.append((
                 VerifierCheck(
                     field="reroute_latitude",
@@ -155,7 +161,7 @@ def _check_reroute_latitude(action: str, g_scale: int) -> list[tuple[VerifierChe
                     corrected_to=threshold,
                     reason=reason,
                 ),
-                corrected_action,
+                current,
             ))
 
     return checks
@@ -184,16 +190,57 @@ def _check_gic_steps(action: str) -> list[tuple[VerifierCheck, str]]:
 # ── GMDSS Channel Check ─────────────────────────────────────────────────────
 
 def _check_gmdss_channels(action: str) -> list[tuple[VerifierCheck, str]]:
-    """Check that maritime actions reference valid GMDSS channels/frequencies."""
+    """
+    Check maritime actions against the GMDSS channel and frequency tables.
+
+    Two passes. The named-channel pass is recognition only — it confirms the
+    advisory refers to something real. The kHz pass can block.
+
+    GMDSS_VALID_FREQUENCIES_KHZ used to be declared and never read: nothing in
+    the verifier looked at maritime frequencies at all, so an action telling a
+    vessel to guard a distress watch on a frequency that does not exist emitted
+    no check whatsoever and the advisory came back "passed". Distress frequency
+    is exactly the value that must not be wrong.
+    """
     checks: list[tuple[VerifierCheck, str]] = []
     action_lower = action.lower()
+    current = action
 
     for channel in GMDSS_VALID_CHANNELS:
         if channel in action_lower:
             checks.append((
                 VerifierCheck(field="gmdss_channel", proposed=channel, status="pass"),
-                action,
+                current,
             ))
+
+    # Frequencies quoted in kHz, e.g. "2182 kHz", "8414.5kHz".
+    for match in re.finditer(r"(\d+(?:\.\d+)?)\s*kHz", action, re.IGNORECASE):
+        raw = match.group(1)
+        freq = float(raw)
+
+        if freq in GMDSS_VALID_FREQUENCIES_KHZ:
+            checks.append((
+                VerifierCheck(field="gmdss_frequency", proposed=freq, status="pass"),
+                current,
+            ))
+            continue
+
+        nearest = min(GMDSS_VALID_FREQUENCIES_KHZ, key=lambda f: abs(f - freq))
+        nearest_str = f"{nearest:g}"
+        current = current.replace(match.group(0), f"{nearest_str} kHz")
+        checks.append((
+            VerifierCheck(
+                field="gmdss_frequency",
+                proposed=freq,
+                status="blocked",
+                corrected_to=nearest,
+                reason=(
+                    f"{raw} kHz is not a GMDSS distress or DSC frequency; "
+                    f"nearest valid is {nearest_str} kHz"
+                ),
+            ),
+            current,
+        ))
 
     return checks
 
@@ -252,8 +299,12 @@ def verify_advisory(
 
         if industry == "maritime":
             gmdss_results = _check_gmdss_channels(action_text)
-            for check, _ in gmdss_results:
+            for check, corrected in gmdss_results:
                 action_checks.append(check)
+                # Take the corrected text: this check can now block an invalid
+                # distress frequency, so discarding its output would record the
+                # correction in the trace while shipping the bad value.
+                action_text = corrected
 
         all_checks.extend(action_checks)
         corrected_actions.append(action_text)
@@ -261,7 +312,10 @@ def verify_advisory(
     # Determine overall verifier status
     has_blocked = any(c.status == "blocked" for c in all_checks)
     if not all_checks:
-        status = "passed"
+        # No rule set covers this industry — telecom has none at all, and any
+        # industry can end up here if an advisory contains no checkable values.
+        # Reporting "passed" would claim a verification that never happened.
+        status = "not_applicable"
     elif has_blocked:
         status = "passed_with_corrections"
     else:

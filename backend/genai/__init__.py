@@ -6,7 +6,7 @@ Public API:
     run_pipeline(storm: StormEvent) -> list[AdvisoryOutput]
 """
 
-from genai.orchestrator import run_pipeline, stream_pipeline
-from genai.models import AdvisoryOutput, StormEvent
+from backend.genai.orchestrator import run_pipeline, stream_pipeline
+from backend.genai.models import AdvisoryOutput, StormEvent
 
 __all__ = ["run_pipeline", "stream_pipeline", "StormEvent", "AdvisoryOutput"]

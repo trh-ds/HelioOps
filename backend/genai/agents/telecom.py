@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from genai.agents.base import IndustryAgentBase
-from genai.prompts.telecom import TELECOM_KB_QUERY, TELECOM_SYSTEM_PROMPT
+from backend.genai.agents.base import IndustryAgentBase
+from backend.genai.prompts.telecom import TELECOM_KB_QUERY, TELECOM_SYSTEM_PROMPT
 
 
 class TelecomAgent(IndustryAgentBase):

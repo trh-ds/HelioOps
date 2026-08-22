@@ -10,32 +10,15 @@ Similarity is computed from ChromaDB's L2 distance:
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import logging
 
-# Ensure embeddings/ package is importable from any working directory
-_project_root = Path(__file__).parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+from backend.embeddings.collections import count_collection as _count_collection
+from backend.embeddings.collections import query_collection as _query_collection
+from backend.embeddings.embedder import embed_query as _embed_query
+from backend.genai.config import RAG_MIN_SIMILARITY
+from backend.genai.models import RetrievedChunk
 
-import chromadb
-
-from embeddings.embedder import embed_query as _embed_query
-
-from genai.config import CHROMA_PERSIST_PATH, RAG_MIN_SIMILARITY
-from genai.models import RetrievedChunk
-
-# ── Singleton ChromaDB client ─────────────────────────────────────────────────
-
-_chroma_client: chromadb.PersistentClient | None = None
-
-
-def _get_client() -> chromadb.PersistentClient:
-    global _chroma_client
-    if _chroma_client is None:
-        _chroma_client = chromadb.PersistentClient(path=CHROMA_PERSIST_PATH)
-    return _chroma_client
-
+log = logging.getLogger(__name__)
 
 # ── Core retrieval ────────────────────────────────────────────────────────────
 
@@ -58,23 +41,35 @@ def retrieve_chunks(
         List of RetrievedChunk objects sorted by similarity (descending).
         Empty list if collection doesn't exist or no chunks pass the threshold.
     """
+    # A silent `except Exception: return []` used to wrap this whole function.
+    # When retrieval broke, the agent got zero chunks, the prompt fell back to
+    # "[NO CONTEXT RETRIEVED]", and the LLM produced an ungrounded advisory
+    # whose only citation was that placeholder string — flagged LOW_COVERAGE
+    # but otherwise indistinguishable from a real one. In an anti-hallucination
+    # pipeline a retrieval failure has to be loud, so only the genuinely
+    # expected case (collection absent) is swallowed.
     try:
-        client = _get_client()
-        collection = client.get_collection(collection_name)
+        count = _count_collection(collection_name)
+        if count == 0:
+            log.warning(
+                "KB collection '%s' is empty — advisory will be ungrounded",
+                collection_name,
+            )
+            return []
+
+        query_embedding = _embed_query(query)
+        results = _query_collection(
+            collection_name,
+            query_embeddings=[query_embedding],
+            n_results=min(top_k, count),
+            include=["documents", "metadatas", "distances"],
+        )
     except Exception:
-        # Collection may not exist yet (e.g. telecom_kb not yet ingested)
+        log.exception(
+            "RAG retrieval failed for collection '%s' — advisory will be ungrounded",
+            collection_name,
+        )
         return []
-
-    if collection.count() == 0:
-        return []
-
-    query_embedding = _embed_query(query)
-
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=min(top_k, collection.count()),
-        include=["documents", "metadatas", "distances"],
-    )
 
     chunks: list[RetrievedChunk] = []
     for i, (doc, meta, dist) in enumerate(

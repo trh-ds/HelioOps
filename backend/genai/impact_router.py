@@ -15,7 +15,7 @@ Reference:
 
 from __future__ import annotations
 
-from genai.models import GScale, Industry, IndustryImpact, SeverityTier, StormEvent
+from backend.genai.models import GScale, Industry, IndustryImpact, SeverityTier, StormEvent
 
 # ── Impact Matrix ─────────────────────────────────────────────────────────────
 # Source: NOAA Space Weather Scales + NESDIS industry impact briefings

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import tiktoken
 
-from genai.config import MAX_PROMPT_TOKENS
-from genai.models import RetrievedChunk, StormEvent
+from backend.genai.config import MAX_CONTEXT_TOKENS
+from backend.genai.models import RetrievedChunk, StormEvent
 
 _enc: tiktoken.Encoding | None = None
 
@@ -68,6 +68,11 @@ def format_advisory_prompt(
       6. Final instruction
     """
     # --- Section 1: Retrieved Context (token-budgeted) ---
+    # Chunks arrive sorted by similarity, so `continue` rather than `break`:
+    # one oversized chunk should not discard the smaller, still-relevant ones
+    # behind it. That mattered once the budget dropped from 4000 to ~1900 —
+    # a single 500-token PDF chunk could otherwise drop the whole impact-matrix
+    # tail, which is what carries the NOAA scale definitions.
     context_blocks: list[str] = []
     context_tokens = 0
     for chunk in chunks:
@@ -80,8 +85,8 @@ def format_advisory_prompt(
             f"---"
         )
         block_tokens = _token_len(block)
-        if context_tokens + block_tokens > MAX_PROMPT_TOKENS:
-            break  # stop adding chunks once budget exceeded
+        if context_tokens + block_tokens > MAX_CONTEXT_TOKENS:
+            continue
         context_blocks.append(block)
         context_tokens += block_tokens
 
@@ -127,10 +132,46 @@ def format_advisory_prompt(
             f"Do NOT repeat these mistakes."
         )
 
+    # --- Numeric discipline ---
+    #
+    # The single largest source of genuine hallucinations. Each industry prompt
+    # already forbids inventing values, but each does so by listing the
+    # *categories* it cares about — GIC thresholds in A/phase, HF bands in MHz,
+    # latitude boundaries — and models treat anything outside that list as fair
+    # game. Measured on the G5 storm: grid invented "reduce loading by at least
+    # 20%" and "increase VAR reserve by 15%", aviation invented "above 60,000
+    # ft" and "north of 78°N". None of those figures are recommendations in the
+    # retrieved text.
+    #
+    # Stating the rule once, generically, and giving an explicit escape hatch
+    # (say it qualitatively) works better than extending each per-industry list
+    # forever, because the failure is always the same shape: the model wants a
+    # concrete-sounding number and will manufacture one unless told what to do
+    # instead.
+    numeric_rules = (
+        "=== NUMERIC DISCIPLINE (applies to every action_item) ===\n"
+        "Any quantity you state — percentage, frequency, altitude, latitude, "
+        "current, voltage, temperature, distance, duration, count — must appear "
+        "in the RETRIEVED REGULATORY CONTEXT above, and you must cite the source "
+        "it came from.\n"
+        "If the context does not give you a figure, do NOT invent one and do NOT "
+        "estimate. Write the action qualitatively instead.\n"
+        '  Wrong: "Reduce transformer loading by at least 20%."\n'
+        '  Right: "Reduce transformer loading in line with the thermal limits '
+        'given in the referenced standard."\n'
+        '  Wrong: "Monitor crew dose above 60,000 ft."\n'
+        '  Right: "Monitor crew radiation dose on affected high-latitude '
+        'routes."\n'
+        "A qualitative action that is fully grounded is worth more than a "
+        "precise-sounding one that is invented. This is checked automatically "
+        "after generation."
+    )
+
     # --- Assemble ---
     prompt = (
         f"=== RETRIEVED REGULATORY CONTEXT ===\n"
         f"{context_section}\n\n"
+        f"{numeric_rules}\n\n"
         f"=== STORM EVENT ===\n"
         f"{storm_section}\n\n"
         f"=== INDUSTRY ===\n"

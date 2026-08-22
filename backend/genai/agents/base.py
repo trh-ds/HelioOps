@@ -5,8 +5,7 @@ Each industry agent subclasses IndustryAgentBase and provides:
   - system_prompt: industry-specific persona + rules
   - kb_query_template: ChromaDB query template with {g_scale}, {kp_index}, etc.
 
-Uses agentscope.message.Msg for structured message passing between agents.
-Orchestration (parallel fan-out) done via asyncio.gather in orchestrator.py.
+Orchestration (parallel fan-out) is done via asyncio.gather in orchestrator.py.
 
 The full per-industry pipeline runs inside run_async():
   1. Build KB query from storm parameters
@@ -24,35 +23,29 @@ The full per-industry pipeline runs inside run_async():
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
-from agentscope.message import Msg, TextBlock
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_groq import ChatGroq
-
-from genai.config import (
-    GROQ_API_KEY,
-    GROQ_MAX_TOKENS,
+from backend.genai.config import (
     GROQ_MODEL,
-    GROQ_TEMPERATURE,
     IMPACT_MATRIX_KB,
     INDUSTRY_KB_MAP,
     MAX_RETRY_ATTEMPTS,
     RAG_IMPACT_MATRIX_TOP_K,
     RAG_TOP_K,
+    SELF_CHECK_BLOCKING,
+    SELF_CHECK_CONFIDENCE_PENALTY,
     SELF_CHECK_ENABLED,
 )
-from genai.guardrails import (
+from backend.genai.guardrails import (
     apply_safety_flags,
     check_severity_consistency,
     compute_confidence_score,
     self_check_hallucination,
     validate_advisory_schema,
 )
-from genai.models import (
+from backend.genai.models import (
     ActionItem,
     AdvisoryOutput,
     Industry,
@@ -60,48 +53,14 @@ from genai.models import (
     SeverityTier,
     StormEvent,
 )
-from genai.prompts.base import format_advisory_prompt
-from genai.retriever import compute_context_quality, retrieve_chunks
-
-
-def _make_llm(json_mode: bool = True) -> ChatGroq:
-    """Create a Groq LLM instance."""
-    kwargs: dict[str, Any] = {}
-    if json_mode:
-        kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
-    return ChatGroq(
-        api_key=GROQ_API_KEY,
-        model=GROQ_MODEL,
-        temperature=GROQ_TEMPERATURE,
-        max_tokens=GROQ_MAX_TOKENS,
-        **kwargs,
-    )
-
-
-def _msg_payload(msg: Msg) -> dict:
-    """Extract JSON payload from an AgentScope Msg (content is list[TextBlock])."""
-    for block in msg.content:
-        if hasattr(block, "text"):
-            try:
-                return json.loads(block.text)
-            except json.JSONDecodeError:
-                pass
-    return {}
-
-
-def _make_msg(name: str, role: str, payload: dict) -> Msg:
-    """Create an AgentScope Msg with a JSON payload in a TextBlock."""
-    return Msg(
-        name=name,
-        role=role,
-        content=[TextBlock(text=json.dumps(payload))],
-    )
+from backend.genai.llm import complete_json
+from backend.genai.prompts.base import format_advisory_prompt
+from backend.genai.retriever import compute_context_quality, retrieve_chunks
 
 
 class IndustryAgentBase:
     """
     Base agent for per-industry advisory generation.
-    Uses AgentScope's Msg protocol for input/output.
 
     Subclasses provide: industry, system_prompt, kb_query_template.
     """
@@ -133,15 +92,11 @@ class IndustryAgentBase:
             self.stream_callback(event)
         return event
 
-    async def run_async(self, x: Msg) -> Msg:
+    async def run_async(self, storm: StormEvent, severity: str = "HIGH") -> dict:
         """
         Async entry point — called by orchestrator via asyncio.gather.
-        Input Msg carries storm_event + severity in a TextBlock JSON payload.
+        Returns {"advisory": AdvisoryOutput, "stream_log": list[dict]}.
         """
-        payload = _msg_payload(x)
-        storm = StormEvent(**payload["storm_event"])
-        severity = payload.get("severity", "HIGH")
-
         stream_log: list[dict] = []
         advisory: AdvisoryOutput | None = None
         errors: list[str] = []
@@ -177,8 +132,6 @@ class IndustryAgentBase:
         )
 
         # ── Generation + Validation Loop ──────────────────────────────────
-        llm = _make_llm(json_mode=True)
-
         for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
             _log(f"gen_attempt_{attempt}", f"Generating advisory (attempt {attempt}/{MAX_RETRY_ATTEMPTS})")
 
@@ -191,11 +144,7 @@ class IndustryAgentBase:
             )
 
             try:
-                response = await llm.ainvoke([
-                    SystemMessage(content=self.system_prompt),
-                    HumanMessage(content=prompt),
-                ])
-                raw = response.content
+                raw = await complete_json(self.system_prompt, prompt)
             except Exception as exc:
                 err = f"LLM call failed: {exc}"
                 errors.append(err)
@@ -215,26 +164,64 @@ class IndustryAgentBase:
 
             consistent, sev_note = check_severity_consistency(parsed, severity)
             if not consistent:
+                # Clamp up to the deterministic floor, keep the flag.
+                #
+                # This used to flag and publish the model's lower value. The
+                # G-scale matrix in impact_router.py is the authoritative source
+                # for how bad a storm is for an industry — it comes from the NOAA
+                # scales, not from a language model — so a model that reads a G5
+                # as MEDIUM is simply wrong, and shipping MEDIUM means an
+                # operator can read "moderate" for an extreme storm. The flag
+                # alone is not enough: it is one entry in a safety_flags list
+                # that a dashboard may not surface at all.
+                #
+                # Under-reporting is the dangerous direction. Over-reporting is
+                # left alone: the model may raise severity above the floor, since
+                # it can see storm specifics the matrix cannot.
+                original = parsed.severity.value
+                parsed.severity = SeverityTier(severity)
                 parsed.safety_flags.append(SafetyFlag.SEVERITY_MISMATCH)
-                _log("severity_flag", sev_note)
+                parsed.generation_errors.append(
+                    f"Severity raised from LLM value '{original}' to matrix floor "
+                    f"'{severity}'"
+                )
+                _log(
+                    "severity_override",
+                    f"{sev_note} Severity raised {original} -> {severity}.",
+                )
 
+            self_check_flagged = False
             if SELF_CHECK_ENABLED:
                 _log("self_check", "Running hallucination self-check")
                 halluc_free, halluc_note = await self_check_hallucination(
                     advisory=parsed,
                     context_chunks=all_chunks,
-                    llm=_make_llm(json_mode=True),
                 )
                 if not halluc_free:
+                    self_check_flagged = True
                     errors.append(f"Self-check: {halluc_note}")
                     parsed.safety_flags.append(SafetyFlag.HALLUCINATION_DETECTED)
                     _log("self_check_fail", f"Hallucination detected: {halluc_note[:80]}")
-                    if attempt < MAX_RETRY_ATTEMPTS:
+                    # Regenerating costs a full prompt+completion and usually
+                    # reproduces the same flagged numerics. Off by default —
+                    # see SELF_CHECK_BLOCKING in genai/config.py.
+                    if SELF_CHECK_BLOCKING and attempt < MAX_RETRY_ATTEMPTS:
                         continue
 
             parsed.confidence_score = compute_confidence_score(parsed, all_chunks, context_quality)
+            if self_check_flagged:
+                # The flag has to cost something, or a flagged advisory can
+                # still surface with a 0.96 confidence score next to a clean one.
+                parsed.confidence_score = round(
+                    max(0.0, parsed.confidence_score - SELF_CHECK_CONFIDENCE_PENALTY), 4
+                )
             parsed.model_used = GROQ_MODEL
-            parsed = apply_safety_flags(parsed, all_chunks, context_quality)
+            parsed = apply_safety_flags(
+                parsed,
+                all_chunks,
+                context_quality,
+                industry_chunk_count=len(industry_chunks),
+            )
 
             advisory = parsed
             _log(
@@ -260,14 +247,7 @@ class IndustryAgentBase:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
-        return _make_msg(
-            name=self.name,
-            role="assistant",
-            payload={
-                "advisory": advisory.model_dump(mode="json"),
-                "stream_log": stream_log,
-            },
-        )
+        return {"advisory": advisory, "stream_log": stream_log}
 
     def _safe_escalation(
         self,

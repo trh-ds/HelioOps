@@ -1,16 +1,13 @@
 """
-AgentScope orchestration for HelioOps advisory generation.
+Orchestration for HelioOps advisory generation.
 
-Replaces the LangGraph graph.py with AgentScope message protocol +
-asyncio.gather for parallel fan-out.
+Parallel fan-out via asyncio.gather.
 
 Pipeline topology:
   1. RouterAgent     — deterministic G-scale routing (no LLM)
   2. IndustryAgents  — parallel fan-out to triggered industries
   3. CompilerAgent   — fan-in: collects all advisories
   4. VerifierAgent   — deterministic rule checks (Phase 5)
-
-Uses agentscope.message.Msg + TextBlock for structured message passing.
 
 Usage:
   # Streaming (for WebSocket events):
@@ -24,26 +21,50 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
+import logging
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from agentscope.message import Msg, TextBlock
+from backend.genai.agents.aviation import AviationAgent
+from backend.genai.agents.grid import GridAgent
+from backend.genai.agents.maritime import MaritimeAgent
+from backend.genai.agents.telecom import TelecomAgent
+from backend.genai.config import GENAI_MAX_CONCURRENCY
+from backend.genai.impact_router import route_storm
+from backend.genai.models import AdvisoryOutput, StormEvent
 
-from genai.agents.aviation import AviationAgent
-from genai.agents.grid import GridAgent
-from genai.agents.maritime import MaritimeAgent
-from genai.agents.telecom import TelecomAgent
-from genai.impact_router import route_storm
-from genai.models import AdvisoryOutput, StormEvent
+log = logging.getLogger(__name__)
+
+
+async def _run_bounded(agent, storm: StormEvent, severity: str, sem: asyncio.Semaphore) -> dict:
+    """
+    Run one agent while holding a slot in the concurrency semaphore.
+
+    Firing all four industries at once put ~26k tokens into a 8k/min window in
+    one burst, so the last agents in were guaranteed to hit a 429. The token
+    bucket in genai/llm.py would absorb that by stalling, but bounding fan-out
+    here keeps each burst small enough that it mostly never has to.
+    """
+    async with sem:
+        return await agent.run_async(storm, severity)
 
 
 def _prewarm_embedder() -> None:
-    """Load BGE model once in the main thread before parallel asyncio.to_thread calls.
-    Prevents race condition: multiple threads calling _get_model() simultaneously
-    causes 'Cannot copy out of meta tensor' PyTorch error."""
-    from embeddings.embedder import _get_model
+    """Build the shared singletons once, on the main thread, before fan-out.
+
+    Both are touched from worker threads via asyncio.to_thread, and both fail
+    confusingly when several threads initialise them at once:
+      - embedder: 'Cannot copy out of meta tensor' from PyTorch
+      - chroma:   'Could not connect to tenant default_tenant', which surfaces
+                  as an advisory with no retrieved context at all
+    Each is also individually lock-guarded; this just keeps the happy path off
+    the contended route.
+    """
+    from backend.embeddings.collections import get_client
+    from backend.embeddings.embedder import _get_model
+
     _get_model()
+    get_client()
 
 # ── Agent registry ────────────────────────────────────────────────────────────
 # Maps industry name → agent class.
@@ -54,43 +75,6 @@ _AGENT_REGISTRY: dict[str, type] = {
     "maritime": MaritimeAgent,
     "telecom":  TelecomAgent,
 }
-
-
-def _make_input_msg(storm: StormEvent, severity: str) -> Msg:
-    """Build an AgentScope Msg carrying storm + severity for an industry agent."""
-    payload = {
-        "storm_event": storm.model_dump(mode="json"),
-        "severity": severity,
-    }
-    return Msg(
-        name="orchestrator",
-        role="user",
-        content=[TextBlock(text=json.dumps(payload))],
-    )
-
-
-def _extract_advisory(result_msg: Msg) -> dict | None:
-    """Extract advisory dict from agent result Msg."""
-    for block in result_msg.content:
-        if hasattr(block, "text"):
-            try:
-                data = json.loads(block.text)
-                return data.get("advisory")
-            except (json.JSONDecodeError, AttributeError):
-                pass
-    return None
-
-
-def _extract_stream_log(result_msg: Msg) -> list[dict]:
-    """Extract stream_log list from agent result Msg."""
-    for block in result_msg.content:
-        if hasattr(block, "text"):
-            try:
-                data = json.loads(block.text)
-                return data.get("stream_log", [])
-            except (json.JSONDecodeError, AttributeError):
-                pass
-    return []
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -135,6 +119,7 @@ async def stream_pipeline(storm: StormEvent) -> AsyncGenerator[dict, None]:
         return
 
     # Step 2: Build agents for triggered industries
+    sem = asyncio.Semaphore(GENAI_MAX_CONCURRENCY)
     agent_tasks = []
     for impact in triggered:
         industry = impact.industry.value
@@ -150,8 +135,9 @@ async def stream_pipeline(storm: StormEvent) -> AsyncGenerator[dict, None]:
             continue
 
         agent = agent_cls(stream_callback=_stream_callback)
-        input_msg = _make_input_msg(storm, impact.severity.value)
-        agent_tasks.append(asyncio.create_task(agent.run_async(input_msg)))
+        agent_tasks.append(
+            asyncio.create_task(_run_bounded(agent, storm, impact.severity.value, sem))
+        )
 
     # Step 3: Parallel fan-out — drain event queue while agents run
     while True:
@@ -172,19 +158,18 @@ async def stream_pipeline(storm: StormEvent) -> AsyncGenerator[dict, None]:
     advisories = []
     for task in agent_tasks:
         try:
-            result_msg = task.result()
-            adv_data = _extract_advisory(result_msg)
-            if adv_data:
-                advisories.append(adv_data)
-                yield {
-                    "event": "advisory.generated",
-                    "industry": adv_data.get("industry"),
-                    "advisory_id": adv_data.get("advisory_id"),
-                    "severity": adv_data.get("severity"),
-                    "confidence": adv_data.get("confidence_score"),
-                    "data": adv_data,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
+            advisory = task.result()["advisory"]
+            adv_data = advisory.model_dump(mode="json")
+            advisories.append(adv_data)
+            yield {
+                "event": "advisory.generated",
+                "industry": adv_data["industry"],
+                "advisory_id": adv_data["advisory_id"],
+                "severity": adv_data["severity"],
+                "confidence": adv_data["confidence_score"],
+                "data": adv_data,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
         except Exception as exc:
             yield {
                 "event": "agent.error",
@@ -214,6 +199,7 @@ async def run_pipeline(storm: StormEvent) -> list[AdvisoryOutput]:
     if not triggered:
         return []
 
+    sem = asyncio.Semaphore(GENAI_MAX_CONCURRENCY)
     agent_tasks = []
     for impact in triggered:
         industry = impact.industry.value
@@ -221,20 +207,15 @@ async def run_pipeline(storm: StormEvent) -> list[AdvisoryOutput]:
         if agent_cls is None:
             continue
         agent = agent_cls()
-        input_msg = _make_input_msg(storm, impact.severity.value)
-        agent_tasks.append(agent.run_async(input_msg))
+        agent_tasks.append(_run_bounded(agent, storm, impact.severity.value, sem))
 
     results = await asyncio.gather(*agent_tasks, return_exceptions=True)
 
     advisories: list[AdvisoryOutput] = []
     for r in results:
         if isinstance(r, Exception):
+            log.warning("Agent task failed: %s", r)
             continue
-        adv_data = _extract_advisory(r)
-        if adv_data:
-            try:
-                advisories.append(AdvisoryOutput(**adv_data))
-            except Exception:
-                pass
+        advisories.append(r["advisory"])
 
     return advisories

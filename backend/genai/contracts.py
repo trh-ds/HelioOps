@@ -5,7 +5,6 @@ These Pydantic models match the frozen contracts in imp.md §7.2–7.4.
 Tirth's delivery layer consumes VerifiedAdvisory + ProvenanceTrace.
 """
 
-from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -52,7 +51,11 @@ class VerifierCheck(BaseModel):
 
 class VerifierResult(BaseModel):
     """Aggregate verifier outcome for one advisory."""
-    status: Literal["passed", "passed_with_corrections", "blocked"]
+    # "not_applicable" means no rule set matched this industry, so nothing was
+    # checked. It is distinct from "passed", which previously covered both
+    # "every check succeeded" and "there were no checks" — telecom has no rules
+    # at all and was reporting "passed" having been verified against nothing.
+    status: Literal["passed", "passed_with_corrections", "blocked", "not_applicable"]
     checks: list[VerifierCheck] = Field(default_factory=list)
 
 

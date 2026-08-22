@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from genai.agents.base import IndustryAgentBase
-from genai.prompts.aviation import AVIATION_KB_QUERY, AVIATION_SYSTEM_PROMPT
+from backend.genai.agents.base import IndustryAgentBase
+from backend.genai.prompts.aviation import AVIATION_KB_QUERY, AVIATION_SYSTEM_PROMPT
 
 
 class AviationAgent(IndustryAgentBase):
