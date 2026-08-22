@@ -47,14 +47,18 @@ export const GLYPHS = [
   { l: '44%', t: '78%', c: '◇', size: 8 }
 ]
 
-/* `path` is what decides the active underline; the dashboard link lands on
-   /about but never claims the ABOUT tab. */
+/* `path` is what decides the active underline.
+
+   No CONSOLE entry: it pointed at /dashboard, which is exactly where the
+   OPEN DASHBOARD button in the same bar goes. Two controls, one destination,
+   sitting inches apart - the second one only makes a reader wonder what the
+   difference is. The button stays because a call to action should look like
+   one, not like a fifth tab. */
 export const NAV = [
   { label: 'MAIN', to: '/', path: '/' },
   { label: 'ABOUT', to: '/about', path: '/about' },
   { label: 'PROBLEM', to: '/problem', path: '/problem' },
-  { label: 'INDUSTRIES', to: '/industries', path: '/industries' },
-  { label: 'CONSOLE', to: '/dashboard', path: '/dashboard' }
+  { label: 'INDUSTRIES', to: '/industries', path: '/industries' }
 ]
 
 export const DASHBOARD_LINK = '/dashboard'

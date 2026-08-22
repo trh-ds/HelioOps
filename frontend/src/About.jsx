@@ -1,5 +1,6 @@
 import { ABOUT_STATS, BETS, CAVEATS, REAL, STAGES, TEAM } from './data.js'
 import PageShell from './PageShell.jsx'
+import PipelineFlow from './PipelineFlow.jsx'
 import './pages.css'
 
 export default function About({ showTeam = true }) {
@@ -39,6 +40,7 @@ export default function About({ showTeam = true }) {
           <h2 className="section-h">The five-stage pipeline</h2>
           <span className="rule-hatch" />
         </div>
+        <PipelineFlow />
         <div className="hairline-grid stages">
           {STAGES.map(s => (
             <div className="stage" key={s.n}>
@@ -53,8 +55,9 @@ export default function About({ showTeam = true }) {
           ))}
         </div>
         <p className="section-note">
-          Every advisory that reaches an operator carries a six-step provenance trace: raw_data →
-          detection → impact → retrieval → verifier → output.
+          One direction, five fixed stages, and nothing downstream can reach back. Every advisory
+          that arrives carries the trace above it, so any instruction can be walked back to the
+          frame it came from.
         </p>
       </section>
 
@@ -108,7 +111,7 @@ export default function About({ showTeam = true }) {
         <section className="section">
           <div className="section-head">
             <span className="section-no">2.4</span>
-            <h2 className="section-h">Four people, one week</h2>
+            <h2 className="section-h">The Fantastic 4</h2>
             <span className="rule-hatch" />
           </div>
           <div className="team">
