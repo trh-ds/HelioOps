@@ -44,6 +44,7 @@ export const getStorms = () => json('/api/storms')
 export const getPreflight = stormId => json(`/api/preflight/${encodeURIComponent(stormId)}`)
 export const getResult = stormId => json(`/api/result/${encodeURIComponent(stormId)}`)
 export const getAdvisory = id => json(`/api/advisory/${encodeURIComponent(id)}`)
+export const getKbSources = () => json('/api/kb/sources')
 
 /* Ask one industry agent about its own advisory.
    Runs on the backend's checker model - a different Groq TPM bucket - so

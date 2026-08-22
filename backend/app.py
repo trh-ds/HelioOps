@@ -30,7 +30,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from backend.config import settings
-from backend.logging import setup_logging, get_logger
+from backend.logging_config import setup_logging, get_logger
 
 setup_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
 log = get_logger("backend.app")

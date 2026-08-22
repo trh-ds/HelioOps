@@ -1,0 +1,11 @@
+# Hugging Face Spaces (sdk: gradio) installs the ROOT requirements.txt. The real
+# list lives in backend/requirements.txt so the Docker route and this one can
+# never drift apart — pip resolves -r relative to this file's directory.
+-r backend/requirements.txt
+
+# gradio itself is deliberately absent: the Space pre-installs it at the version
+# pinned by `sdk_version` in README.md's front matter. Pinning it here would
+# fight that and can break the build.
+#
+# `spaces` (the ZeroGPU decorator package) is also absent on purpose — this app
+# never touches a GPU, so it has nothing to decorate.

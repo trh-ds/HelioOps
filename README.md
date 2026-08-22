@@ -3,10 +3,19 @@ title: HelioOps API
 emoji: 🌞
 colorFrom: orange
 colorTo: red
-sdk: docker
-app_port: 7860
+sdk: gradio
+app_file: app.py
+python_version: "3.12"
 pinned: false
 ---
+
+<!-- Front matter note: this block IS the Space config, so do not "tidy" it.
+     sdk was `docker` with `app_port: 7860`. Docker Spaces now require a paid
+     plan, so the API is served through the Gradio SDK instead — see app.py.
+     `app_port` is a Docker-only key and does not apply here; a Gradio Space
+     always serves on 7860. `sdk_version` is intentionally omitted so the Space
+     uses its own pinned gradio rather than one this repo guesses wrong. -->
+
 
 <div align="center">
 

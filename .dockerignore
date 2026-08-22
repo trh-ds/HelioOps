@@ -18,15 +18,17 @@ backend/data/cached/*/raw
 backend/data/cached/*/png
 backend/data/cached/*/diff
 
-# Knowledge-base source documents — ~40MB of regulatory PDFs. They are inputs
-# to the offline ingest step, not to serving: at runtime the API reads only the
-# embedded vectors in backend/data/chroma_db. Keeping them out of the image
-# costs nothing and keeps it small. They stay in git so the KB is reproducible
-# with `python -m backend.embeddings.rebuild_kb`.
-backend/data/aviation/*.pdf
-backend/data/grid/*.pdf
-backend/data/maritime/*.pdf
-backend/data/telecom/*.pdf
-backend/data/impact_matrix/*.pdf
+# The KB source PDFs are NOT excluded, despite being ~57MB and being the input
+# to the offline ingest step.
+#
+# They are also read at serving time. app.py:_index_kb_sources() globs DATA_DIR
+# for *.pdf at startup, and GET /api/kb/source/{filename} FileResponses them —
+# that is what every citation in an advisory deep-links to ("nat_doc_007_2025.pdf
+# p.42" -> /api/kb/source/nat_doc_007_2025.pdf#page=42). Excluding them built an
+# image where the index held only the 5 txt/md files, so all 16 PDF citations
+# 404'd. Nothing failed loudly: the advisory still rendered, the link just died.
+#
+# 57MB against a ~3GB torch image is not worth a broken citation trail on a
+# product whose pitch is an auditable one.
 
 *.md

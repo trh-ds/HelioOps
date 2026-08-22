@@ -11,7 +11,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from backend.logging import get_logger
+from backend.logging_config import get_logger
 
 log = get_logger("backend.adapters.schema")
 

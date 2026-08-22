@@ -185,6 +185,37 @@ belongs inside a function.
 |---|---|
 | Sleeps after 48 h idle | 1–3 min cold start on the next request |
 | Ephemeral disk | results lost on restart |
-| No custom domain on free tier | API stays on `*.hf.space` (fine — only the frontend bundle references it) |
+| No custom domain on free tier | API stays on `*.hf.space` (fine — only the frontend bundle references it). See *Using the domain* below. |
 | Groq free-tier TPM | one run = 4 concurrent `gpt-oss-120b` advisories + 4 concurrent `gpt-oss-20b` self-checks; simultaneous demos can throttle |
 | Single process, no queue | `/api/detect` is rate-limited to one run per storm per 30 s, in-process |
+
+---
+
+## Using the domain
+
+We own **`heliops.dpdns.org`** (DigitalPlat FreeDomain). What it can and cannot
+reach, so nobody burns an afternoon on the wrong half:
+
+**The frontend can use it today, for free.** Vercel Hobby includes a custom
+domain and issues the cert. That is Phase 2 of [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+and needs no change to this backend procedure.
+
+**The backend cannot, on a free Space.** HF gates custom domains behind paid
+hardware, so the API keeps its `*.hf.space` hostname. That costs nothing real:
+the hostname is baked into the bundle as `VITE_API_URL` and no human ever types
+it.
+
+**If we do want `api.heliops.dpdns.org`,** there are three routes, cheapest first:
+
+1. **Cloudflare Worker in front of the Space** — free. Move the nameservers to
+   Cloudflare, keep `heliops` as a DNS-only `CNAME` to Vercel, and proxy `api`
+   through a Worker that rewrites the `Host` header to `<user>-helioops.hf.space`.
+   `DEPLOYMENT.md` §Phase 2 Option B has it. Verify the Worker forwards the
+   `Upgrade`/`Connection` headers or `/ws/stream` dies while REST keeps working.
+2. **Paid HF hardware** — custom domains unlock, no proxy to maintain.
+3. **Move the backend to a host with free custom domains** (Fly.io, Railway,
+   Render). Biggest change; only worth it if the 48 h sleep is also hurting.
+
+Whichever route: a new API origin must be added to `HELIOOPS_CORS_ORIGINS`
+(it **replaces** the default list, so include the production origins too) and
+`VITE_API_URL` must be rebuilt, because Vite inlines it at **build** time.

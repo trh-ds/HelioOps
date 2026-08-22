@@ -1,0 +1,58 @@
+# Production stack for the AWS EC2 box. Pulls a prebuilt image from ECR rather
+# than building on the instance — a torch build on a t3.small takes longer than
+# the instance has memory for.
+#
+# Deployed to /opt/helioops on the host by deployment/infra/user_data.sh.
+# HELIOOPS_IMAGE, HELIOOPS_DOMAIN and GROQ_API_KEY come from /opt/helioops/.env,
+# which user_data.sh writes from SSM Parameter Store.
+#
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+  backend:
+    image: ${HELIOOPS_IMAGE}
+    environment:
+      # genai/llm.py reads os.getenv("GROQ_API_KEY") directly. The HELIOOPS_
+      # prefixed settings field is the spurious one — do not rename this.
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      HELIOOPS_LOG_LEVEL: INFO
+      HELIOOPS_LOG_FORMAT: json
+      # Gates CORS *and* the /ws/stream origin check. It REPLACES the defaults
+      # in backend/config.py rather than extending them, so every production
+      # origin has to be listed here once it is set at all. An unlisted origin
+      # closes the socket with 4003, which reads as a backend fault.
+      HELIOOPS_CORS_ORIGINS: ${HELIOOPS_CORS_ORIGINS}
+      # Deliberately unset: HELIOOPS_CHROMA_PERSIST_PATH. Unset it resolves to
+      # the DB baked into the image. A relative value makes Chroma *create* an
+      # empty DB and every advisory goes ungrounded with no error anywhere.
+    restart: unless-stopped
+    # One replica, deliberately. pipeline.py:58 keeps results in a process-local
+    # dict, so a second replica would 404 /api/result/{id} for half the requests.
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HELIOOPS_DOMAIN: ${HELIOOPS_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Named volume, not a bind: it holds the issued certificate and the ACME
+      # account key. Losing it on every deploy means re-issuing, and Let's
+      # Encrypt rate-limits that to 5 per week per domain.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy_data:
+  caddy_config:

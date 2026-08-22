@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncGenerator
 
-from backend.logging import get_logger
+from backend.logging_config import get_logger
 
 log = get_logger("backend.adapters.advisory")
 

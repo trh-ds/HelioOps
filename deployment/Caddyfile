@@ -1,0 +1,30 @@
+# TLS terminator for the AWS deploy. Caddy runs as a container next to the API
+# (see docker-compose.prod.yml) so the host needs nothing installed but Docker.
+#
+# Caddy fetches a Let's Encrypt cert on first boot via the HTTP-01 challenge, so
+# the domain must already resolve to this box's Elastic IP before the container
+# starts. If it does not, Caddy retries in the background and serves nothing —
+# check `docker compose logs caddy` before suspecting the API.
+
+{$HELIOOPS_DOMAIN} {
+	encode gzip
+
+	# reverse_proxy passes Upgrade/Connection through unchanged, so /ws/stream
+	# works with no extra config. A hand-rolled nginx block usually does not,
+	# which is the classic "REST works, WebSocket closes immediately" split.
+	reverse_proxy backend:8000 {
+		# /api/detect takes 65-80s: the Groq reasoning pass dominates and no
+		# amount of instance size changes it. Caddy's default write timeout is
+		# generous, but the read/idle side has to outlast a silent WebSocket
+		# between pipeline stages.
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

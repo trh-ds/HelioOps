@@ -1,0 +1,17 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "_comment_dockerfilePath": "Not the root Dockerfile — that one is shaped for Hugging Face Spaces (UID 1000, port 7860, embedder baked after USER). deployment/Dockerfile.backend is the platform-neutral multi-stage build and is what belongs here.",
+    "dockerfilePath": "deployment/Dockerfile.backend"
+  },
+  "deploy": {
+    "_comment_healthcheckPath": "/health/live, deliberately NOT /health/ready. Readiness answers 503 when any dependency layer is down, which is information you want on a dashboard but not wired to a restart loop — a cold Chroma would crash-loop the deploy.",
+    "healthcheckPath": "/health/live",
+    "healthcheckTimeout": 300,
+    "_comment_replicas": "One replica, deliberately. pipeline.py:58 keeps results in a process-local dict, so a second replica 404s /api/result/{id} for whichever half of requests lands on the wrong one.",
+    "numReplicas": 1,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}
