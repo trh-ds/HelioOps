@@ -3,7 +3,7 @@
 
 pytest>=8.0
 pytest-asyncio>=0.23
-ruff>=0.4
+ruff==0.14.10
 
 # Knowledge-base ingest (backend/embeddings/ingest_*.py)
 pypdf>=4.0

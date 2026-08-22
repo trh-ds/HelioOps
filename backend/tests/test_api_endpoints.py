@@ -14,11 +14,24 @@ Covers:
 
 from __future__ import annotations
 
+import os
+
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import app
 
 client = TestClient(app, raise_server_exceptions=False)
+
+# The only test in the suite that spends real Groq quota. CI passes the
+# placeholder GROQ_API_KEY=test-key, which cannot authenticate, so the run
+# burns 9-12 minutes discovering that - and _pick_key()'s unbounded `while
+# True` can park it indefinitely rather than failing. Gate on a key that is
+# at least shaped like a real one.
+requires_live_groq = pytest.mark.skipif(
+    not os.getenv("GROQ_API_KEY", "").startswith("gsk_"),
+    reason="live Groq call - needs a real key",
+)
 
 
 class TestHealthEndpoint:
@@ -91,6 +104,7 @@ class TestDetectEndpoint:
         resp = client.post("/api/detect/'; DROP TABLE--")
         assert resp.status_code == 400
 
+    @requires_live_groq
     def test_valid_storm_id_returns_200_or_500_or_429(self):
         """Valid storm_id returns 200 (success), 500 (pipeline error), or 429 (rate limited)."""
         resp = client.post("/api/detect/2024-10-G4")

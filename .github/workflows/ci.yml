@@ -13,14 +13,16 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
       - run: pip install -r backend/requirements-dev.txt
       - name: Lint
-        run: ruff check backend/ --ignore=E501,F403,E402
+        # Rule selection lives in ruff.toml so it cannot drift when ruff
+        # ships new defaults - which is exactly what turned CI red.
+        run: ruff check backend/
       - name: Test
         run: pytest backend/tests -q
         env:
@@ -32,8 +34,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -55,7 +57,7 @@ jobs:
         # has to be in CI or the deployed image is the only untested one.
         file: [Dockerfile, deployment/Dockerfile.backend, deployment/Dockerfile.frontend]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v5
         with:

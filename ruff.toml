@@ -1,0 +1,25 @@
+# Lint configuration for the whole repo.
+#
+# Why this file exists: CI was red on every push from 2026-08-22 (runs
+# 32562493728 .. 32570304422) with only the Lint step failing, and because it
+# fails first, the backend Test step and the images job had not run for seven
+# commits. The cause was version drift, not code. `requirements-dev.txt` pinned
+# `ruff>=0.4`, so CI installed whatever was newest and inherited ITS default
+# rule set - which has widened over releases (I001, UP045, BLE001, RUF/UP/S110/
+# SIM: 195 findings). The same tree was clean on the locally installed ruff.
+#
+# Stating the rule set explicitly is the fix that survives the next ruff
+# release: the selection no longer moves when the default does. The version pin
+# in requirements-dev.txt is belt and braces on top of it.
+#
+# E4/E7/E9 + F is ruff's own classic default (pycodestyle errors + pyflakes),
+# written out rather than inherited.
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+# E501 line-too-long   - prose in docstrings and long URLs; not worth wrapping.
+# F403 star-imports    - the layer __init__ re-exports rely on them.
+# E402 import-not-top  - backend/__init__.py must load .env before submodules
+#                        import, and app.py imports adapters after settings.
+ignore = ["E501", "F403", "E402"]
