@@ -1,0 +1,32 @@
+**/__pycache__
+**/*.pyc
+.git
+.github
+.pytest_cache
+.ruff_cache
+frontend/node_modules
+frontend/.next
+# Local build output; Dockerfile.frontend runs its own `npm run build`.
+frontend/dist
+backend/tests
+# Training-only: the generator/trainer scripts, the synthetic training set and
+# its EDA plots. Serving reads backend/ml/checkpoints and nothing else under
+# backend/ml.
+backend/ml/0*.py
+backend/ml/data/
+backend/data/cached/*/raw
+backend/data/cached/*/png
+backend/data/cached/*/diff
+
+# Knowledge-base source documents — ~40MB of regulatory PDFs. They are inputs
+# to the offline ingest step, not to serving: at runtime the API reads only the
+# embedded vectors in backend/data/chroma_db. Keeping them out of the image
+# costs nothing and keeps it small. They stay in git so the KB is reproducible
+# with `python -m backend.embeddings.rebuild_kb`.
+backend/data/aviation/*.pdf
+backend/data/grid/*.pdf
+backend/data/maritime/*.pdf
+backend/data/telecom/*.pdf
+backend/data/impact_matrix/*.pdf
+
+*.md

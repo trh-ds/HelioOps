@@ -1,0 +1,32 @@
+# HelioOps backend — one container, scale-to-zero friendly (Cloud Run / Fly / Render).
+# Build from the repo root:  docker build -f deployment/Dockerfile.backend -t helioops-backend .
+
+FROM python:3.12-slim AS builder
+WORKDIR /app
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+FROM python:3.12-slim
+LABEL org.opencontainers.image.title="helioops-backend"
+LABEL org.opencontainers.image.description="HelioOps space weather impact intelligence API"
+
+WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY backend/ backend/
+
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
+
+# Bake the embedding model into the image. Downloading it on first request costs
+# ~90s of cold start and needs egress to HuggingFace at runtime.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"
+
+EXPOSE 8000
+
+# python, not curl — the slim image has no curl, so the old healthcheck always
+# failed and docker compose never started the frontend behind service_healthy.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import os,urllib.request;urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('PORT','8000')}/health/live\").read()" || exit 1
+
+CMD ["sh", "-c", "uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000}"]

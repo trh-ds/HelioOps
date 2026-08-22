@@ -1,0 +1,30 @@
+# Local full stack.  Run from the repo root:
+#   docker compose -f deployment/docker-compose.yml up --build
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.backend
+    ports: ["8000:8000"]
+    env_file: ../.env
+    environment:
+      HELIOOPS_LOG_LEVEL: INFO
+      HELIOOPS_LOG_FORMAT: json
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.frontend
+      args:
+        # NEXT_PUBLIC_* is inlined at build time, so it must be a build arg,
+        # not a runtime environment variable.
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
