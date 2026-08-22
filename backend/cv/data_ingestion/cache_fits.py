@@ -6,9 +6,9 @@ Two download paths:
   LASCO  May 2024 → SOHO archive via sunpy Fido (VSO)
 
 Usage:
-  python -m cv.cache_fits --storm 2024-10-G4
-  python -m cv.cache_fits --storm 2024-05-G5
-  python -m cv.cache_fits --list-bucket        # verify CCOR-1 S3 structure
+  python -m cv.data_ingestion.cache_fits --storm 2024-10-G4
+  python -m cv.data_ingestion.cache_fits --storm 2024-05-G5
+  python -m cv.data_ingestion.cache_fits --list-bucket        # verify CCOR-1 S3 structure
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +105,7 @@ def fetch_lasco(start: str, end: str, output_dir: str) -> list[str]:
         raise ValueError(f"No LASCO C2 frames found for {start} → {end}")
 
     log.info("Found %d files — fetching to %s", len(result), raw_dir)
-    downloaded = Fido.fetch(result, path=str(raw_dir / "{file}"))
+    Fido.fetch(result, path=str(raw_dir / "{file}"))
 
     paths = sorted(
         str(p) for p in raw_dir.iterdir()
@@ -114,17 +113,6 @@ def fetch_lasco(start: str, end: str, output_dir: str) -> list[str]:
     )
     log.info("LASCO fetch complete — %d files", len(paths))
     return paths
-
-
-def list_fits_sequence(raw_dir: str) -> list[str]:
-    """Return FITS paths in raw_dir sorted chronologically by filename."""
-    d = Path(raw_dir)
-    if not d.exists():
-        return []
-    return sorted(
-        str(p) for p in d.iterdir()
-        if p.suffix.lower() in (".fits", ".fts", ".fit")
-    )
 
 
 def list_s3_bucket(prefix: str = "") -> None:

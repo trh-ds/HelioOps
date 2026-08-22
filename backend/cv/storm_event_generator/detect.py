@@ -1,7 +1,7 @@
 """
 cv/detect.py — Heliospheric detection entry point (Option C)
 
-Called by Tirth's replay engine:  from cv.detect import detect
+Called by Tirth's replay engine:  from backend.cv.storm_event_generator.detect import detect
 
 Two modes:
   detect(storm_id)   — deterministic replay from cached data (DEMO_MODE=true)
@@ -14,10 +14,10 @@ Fallback chain (every layer has a safe fallback):
   StormEvent built?   → return it       else → load stub JSON directly
 
 Usage:
-  python -m cv.detect --storm 2024-10-G4
-  python -m cv.detect --storm 2024-05-G5
-  python -m cv.detect --storm 2024-10-G4 --dry-run   # prints result, no annotation write
-  python -m cv.detect --live                          # real-time mode
+  python -m cv.storm_event_generator.detect --storm 2024-10-G4
+  python -m cv.storm_event_generator.detect --storm 2024-05-G5
+  python -m cv.storm_event_generator.detect --storm 2024-10-G4 --dry-run   # prints result, no annotation write
+  python -m cv.storm_event_generator.detect --live                          # real-time mode
 """
 
 from __future__ import annotations
@@ -27,7 +27,9 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+
+from backend.cv.storm_event_generator.fusion import StormEvent, fuse
+from backend.paths import BACKEND_DIR
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +49,7 @@ STORM_CONFIGS: dict[str, dict] = {
         "flare_cache":   "data/cached/xrs/2024-10-10.json",
         "l1_cache":      "data/cached/l1/2024-10-11.json",
         "alert_cache":   "data/cached/alerts/2024-10-10.txt",
-        "stub_path":     "ml/stubs/storm_event_2024-10-G4.json",
+        "stub_path":     "cv/stubs/storm_event_2024-10-G4.json",
         "stub_bbox":     [0.28, 0.18, 0.74, 0.62],
     },
     "2024-05-G5": {
@@ -61,7 +63,7 @@ STORM_CONFIGS: dict[str, dict] = {
         "flare_cache":   "data/cached/xrs/2024-05-10.json",
         "l1_cache":      "data/cached/l1/2024-05-11.json",
         "alert_cache":   "data/cached/alerts/2024-05-10.txt",
-        "stub_path":     "ml/stubs/storm_event_2024-05-G5.json",
+        "stub_path":     "cv/stubs/storm_event_2024-05-G5.json",
         "stub_bbox":     [0.12, 0.08, 0.88, 0.86],
     },
 }
@@ -80,7 +82,6 @@ def _load_alert(cache_path: str) -> str:
 
 
 def _load_stub(stub_path: str):
-    from cv.fusion import StormEvent
     with open(stub_path) as f:
         return StormEvent(**json.load(f))
 
@@ -89,37 +90,37 @@ def _load_stub(stub_path: str):
 # Main detection pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-def detect(storm_id: str, base_dir: str = ".") -> "StormEvent":
+def detect(storm_id: str, base_dir: str | None = None) -> StormEvent:
     """
     Deterministic replay detection for a known storm.
 
     Same storm_id → byte-identical StormEvent every run (when cached data exists).
-    Tirth calls this as:  from cv.detect import detect
+    Tirth calls this as:  from backend.cv.storm_event_generator.detect import detect
 
     Args:
         storm_id : "2024-10-G4" | "2024-05-G5"
-        base_dir : repo root (default cwd — matches how FastAPI is launched)
+        base_dir : root the STORM_CONFIGS paths resolve against (default: the
+                   backend package directory, so cwd never matters)
 
     Returns:
         StormEvent (pydantic model, JSON-serialisable via .model_dump())
     """
-    from cv.fusion import StormEvent, fuse
-    from cv.threshold_detector import (
+    from backend.cv.image_threshold_algorithm.threshold_detector import (
         detect_cme_in_sequence,
         load_cached_sequence,
         annotate_and_save,
         DEFAULT_OCCULTER_R,
         DEFAULT_CENTER_XY,
     )
-    from cv.donki_client import fetch_cme_analyses, select_best_cme, cme_to_fields
-    from cv.flare_classifier import fetch_and_classify_flare
-    from cv.l1_client import fetch_l1_wind
+    from backend.cv.data_ingestion.donki_client import fetch_cme_analyses, select_best_cme, cme_to_fields
+    from backend.cv.data_ingestion.flare_classifier import fetch_and_classify_flare
+    from backend.cv.data_ingestion.l1_client import fetch_l1_wind
 
     if storm_id not in STORM_CONFIGS:
         raise ValueError(f"Unknown storm_id '{storm_id}'. Known: {list(STORM_CONFIGS)}")
 
     cfg = STORM_CONFIGS[storm_id]
-    base = Path(base_dir)
+    base = Path(base_dir) if base_dir else BACKEND_DIR
 
     stub_path     = str(base / cfg["stub_path"])
     png_dir       = str(base / cfg["png_dir"])
@@ -214,7 +215,7 @@ def detect(storm_id: str, base_dir: str = ".") -> "StormEvent":
         return _load_stub(stub_path)
 
 
-def detect_live() -> "StormEvent":
+def detect_live() -> StormEvent:
     """
     Real-time detection — hits live GOES XRS, DSCOVR, DONKI endpoints.
     Called when DEMO_MODE=false.
@@ -223,10 +224,9 @@ def detect_live() -> "StormEvent":
     otherwise falls back to the threshold on cached frames.
     """
     import tempfile
-    from cv.fusion import StormEvent, fuse
-    from cv.donki_client import fetch_cme_analyses, select_best_cme, cme_to_fields
-    from cv.flare_classifier import fetch_and_classify_flare
-    from cv.l1_client import fetch_l1_wind
+    from backend.cv.data_ingestion.donki_client import fetch_cme_analyses, select_best_cme, cme_to_fields
+    from backend.cv.data_ingestion.flare_classifier import fetch_and_classify_flare
+    from backend.cv.data_ingestion.l1_client import fetch_l1_wind
     from datetime import datetime, timezone, timedelta
 
     now = datetime.now(timezone.utc)
@@ -271,7 +271,7 @@ def main() -> None:
     p.add_argument("--storm", choices=list(STORM_CONFIGS), help="Replay a known storm")
     p.add_argument("--live",  action="store_true",         help="Real-time detection")
     p.add_argument("--dry-run", action="store_true",       help="Print result, no side effects")
-    p.add_argument("--base-dir", default=".",              help="Repo root directory")
+    p.add_argument("--base-dir", default=None,             help="Override the data root")
     args = p.parse_args()
 
     if args.live:
@@ -285,7 +285,7 @@ def main() -> None:
     print(json.dumps(result, indent=2, default=str))
 
     if not args.dry_run:
-        out = Path(args.base_dir) / "data" / "cached" / f"storm_event_{event.storm_id}.json"
+        out = Path(args.base_dir or BACKEND_DIR) / "data" / "cached" / f"storm_event_{event.storm_id}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w") as f:
             json.dump(result, f, indent=2, default=str)

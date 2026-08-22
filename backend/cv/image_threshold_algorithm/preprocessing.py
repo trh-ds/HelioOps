@@ -42,6 +42,13 @@ CCOR1_CADENCE_SEC: float = 900.0            # 15-minute frame cadence
 CCOR1_PLATE_SCALE: float = 0.0225          # degrees per pixel (approximate)
 SOLAR_RADIUS_KM: float = 695_700.0
 
+# Same roots as cv.data_ingestion.cache_fits.OUTPUT_ROOTS — raw FITS land in
+# <root>/raw/, PNGs come back out in <root>/png/ and <root>/diff/.
+STORM_PNG_DIRS: dict[str, str] = {
+    "2024-10-G4": "data/cached/ccor1/2024-10",
+    "2024-05-G5": "data/cached/lasco/2024-05",
+}
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # INTERNAL HELPERS
@@ -430,10 +437,10 @@ def batch_preprocess_directory(
     """
     Batch-convert all FITS files in a directory to normalised + diff PNGs.
 
-    File naming convention (matches existing project outputs):
-        {stem}_normalized.png  — log-scaled normalised frame
-        {stem}_diff.png        — running-difference frame (vs previous)
-        {stem}_meta.txt        — sidecar with instrument metadata
+    Output layout (what threshold_detector.load_cached_sequence() reads):
+        {output_dir}/png/{stem}_normalized.png  — log-scaled normalised frame
+        {output_dir}/png/{stem}_meta.txt        — sidecar: instrument, center, occulter_r
+        {output_dir}/diff/{stem}_diff.png       — running-difference frame (vs previous)
 
     Frames are processed in sorted filename order.
     Frame[0] produces only a normalised PNG (no previous frame for diff).
@@ -443,8 +450,10 @@ def batch_preprocess_directory(
         list of result dicts — one per file — with keys:
         "file", "success", "normalized_path", "diff_path", "center_xy", "error"
     """
-    import os
-    os.makedirs(output_dir, exist_ok=True)
+    png_dir  = Path(output_dir) / "png"
+    diff_dir = Path(output_dir) / "diff"
+    png_dir.mkdir(parents=True, exist_ok=True)
+    diff_dir.mkdir(parents=True, exist_ok=True)
 
     fits_paths = sorted(
         str(p) for p in Path(input_dir).iterdir()
@@ -462,40 +471,42 @@ def batch_preprocess_directory(
         stem = Path(fpath).stem
         r: dict = {"file": fpath, "success": False,
                    "normalized_path": None, "diff_path": None,
-                   "center_xy": None, "error": None}
+                   "center_xy": None, "occulter_r": None, "error": None}
         try:
             curr_frame = load_ccor1_frame(fpath)
 
             # Normalised PNG
             norm_img = preprocess(curr_frame, target_size=target_size,
                                    enhance_contrast=False)
-            norm_path = str(Path(output_dir) / f"{stem}_normalized.png")
+            norm_path = str(png_dir / f"{stem}_normalized.png")
             cv2.imwrite(norm_path, norm_img)
             r["normalized_path"] = norm_path
 
             # Occulter center
-            cx, cy, _ = find_occulter_center(norm_img)
-            r["center_xy"] = (cx, cy)
+            cx, cy, occ_r = find_occulter_center(norm_img)
+            r["center_xy"]  = (cx, cy)
+            r["occulter_r"] = occ_r
 
             # Diff PNG
             if prev_frame is not None:
                 diffs = running_difference([prev_frame, curr_frame])
                 diff_img = preprocess(diffs[0], target_size=target_size,
                                        enhance_contrast=True)
-                diff_path = str(Path(output_dir) / f"{stem}_diff.png")
+                diff_path = str(diff_dir / f"{stem}_diff.png")
                 cv2.imwrite(diff_path, diff_img)
                 r["diff_path"] = diff_path
 
             # Metadata sidecar
             raw, meta = _load_raw_fits(fpath)
-            meta_path = str(Path(output_dir) / f"{stem}_meta.txt")
+            meta_path = str(png_dir / f"{stem}_meta.txt")
             with open(meta_path, "w") as f:
                 for k, v in meta.items():
                     f.write(f"{k}: {v}\n")
                 f.write(f"output_size: {target_size}\n")
-                f.write(f"log_scale: True\n")
-                f.write(f"clip_pct: [0.5, 99.5]\n")
+                f.write("log_scale: True\n")
+                f.write("clip_pct: [0.5, 99.5]\n")
                 f.write(f"center_xy: {r['center_xy']}\n")
+                f.write(f"occulter_r: {r['occulter_r']}\n")
 
             prev_frame = curr_frame
             r["success"] = True
@@ -512,3 +523,31 @@ def batch_preprocess_directory(
     ok = sum(1 for r in results if r["success"])
     log.info("Batch done: %d/%d succeeded", ok, len(results))
     return results
+
+def main() -> None:
+    """CLI: FITS in data/cached/<storm>/raw/ → normalised + diff PNGs alongside it."""
+    import argparse
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
+    p = argparse.ArgumentParser(description="Batch FITS to normalised + diff PNGs")
+    p.add_argument("--storm", choices=list(STORM_PNG_DIRS), help="Storm ID to preprocess")
+    p.add_argument("--input-dir",  help="Override: directory of raw FITS")
+    p.add_argument("--output-dir", help="Override: where png/ and diff/ are written")
+    p.add_argument("--base-dir", default=".", help="Repo root (default: cwd)")
+    args = p.parse_args()
+
+    if args.storm:
+        out_dir   = str(Path(args.base_dir) / STORM_PNG_DIRS[args.storm])
+        input_dir = args.input_dir or str(Path(out_dir) / "raw")
+    elif args.input_dir and args.output_dir:
+        input_dir, out_dir = args.input_dir, args.output_dir
+    else:
+        p.error("--storm, or both --input-dir and --output-dir, required")
+
+    results = batch_preprocess_directory(input_dir, out_dir)
+    ok = sum(1 for r in results if r["success"])
+    print(f"{ok}/{len(results)} frames preprocessed -> {out_dir}/png, {out_dir}/diff")
+
+
+if __name__ == "__main__":
+    main()

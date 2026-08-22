@@ -10,8 +10,8 @@ Live endpoint: https://services.swpc.noaa.gov/json/goes/primary/xrays-1-day.json
 Cache-first. Falls back to cached JSON on network failure.
 
 Usage:
-  python -m cv.flare_classifier --prefetch --storm 2024-10-G4
-  python -m cv.flare_classifier --prefetch --storm 2024-05-G5
+  python -m cv.data_ingestion.flare_classifier --prefetch --storm 2024-10-G4
+  python -m cv.data_ingestion.flare_classifier --prefetch --storm 2024-05-G5
 """
 
 from __future__ import annotations
@@ -19,9 +19,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import requests
 

@@ -18,7 +18,7 @@ Determinism guarantee: no RNG anywhere.  Same diff_frame → identical dict + PN
 bytes every run.  Satisfies the commit-23 byte-identical DoD.
 
 Imports from existing codebase:
-  cv.preprocessing    — load_ccor1_frame, running_difference, preprocess,
+  cv.image_threshold_algorithm.preprocessing    — load_ccor1_frame, running_difference, preprocess,
                         find_occulter_center  (commit 12, unchanged)
 """
 
@@ -96,9 +96,9 @@ def detect_cme_in_frame(
 
     Args:
         diff_frame  : float32 [0,1] running-difference, neutral=0.5
-                      Output of cv.preprocessing.running_difference()[i]
+                      Output of cv.image_threshold_algorithm.preprocessing.running_difference()[i]
         frame_norm  : float32 [0,1] corresponding normalised frame
-                      Output of cv.preprocessing.load_ccor1_frame()
+                      Output of cv.image_threshold_algorithm.preprocessing.load_ccor1_frame()
         occulter_r  : occulter disk radius in pixels (from find_occulter_center)
         center_xy   : (cx, cy) disk center in pixels
 
@@ -395,7 +395,10 @@ def load_cached_sequence(png_dir: str) -> tuple[list[np.ndarray], list[np.ndarra
     """
     Load preprocessed norm + diff PNGs from a cached sequence directory.
 
-    Expects files named {stem}_normalized.png and {stem}_diff.png (commit-12 convention).
+    Expects the layout written by
+    cv.image_threshold_algorithm.preprocessing.batch_preprocess_directory():
+        {png_dir}/png/{stem}_normalized.png  + {stem}_meta.txt
+        {png_dir}/diff/{stem}_diff.png
 
     Returns:
         diff_frames : list of float32 [0,1] diff arrays
@@ -407,12 +410,6 @@ def load_cached_sequence(png_dir: str) -> tuple[list[np.ndarray], list[np.ndarra
 
     norm_paths = sorted(norm_dir.glob("*_normalized.png")) if norm_dir.exists() else []
     diff_paths = sorted(diff_dir.glob("*_diff.png"))       if diff_dir.exists() else []
-
-    # Fallback: flat directory (older layout)
-    if not norm_paths:
-        norm_paths = sorted(Path(png_dir).glob("*_normalized.png"))
-    if not diff_paths:
-        diff_paths = sorted(Path(png_dir).glob("*_diff.png"))
 
     norm_frames = [
         cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0

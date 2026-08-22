@@ -8,8 +8,8 @@ Cache-first: reads from disk on hit, writes on miss.
 Falls back to cached file on network failure (demo-safe).
 
 Usage:
-  python -m cv.donki_client --prefetch --storm 2024-10-G4
-  python -m cv.donki_client --prefetch --storm 2024-05-G5
+  python -m cv.data_ingestion.donki_client --prefetch --storm 2024-10-G4
+  python -m cv.data_ingestion.donki_client --prefetch --storm 2024-05-G5
 """
 
 from __future__ import annotations

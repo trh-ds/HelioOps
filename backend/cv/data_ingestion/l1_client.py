@@ -10,8 +10,8 @@ ETA formula: 1,500,000 km (L1→Earth) / speed_km_s / 60 → eta_minutes.
 This matches imp.md §10 fuse() convention.
 
 Usage:
-  python -m cv.l1_client --prefetch --storm 2024-10-G4
-  python -m cv.l1_client --prefetch --storm 2024-05-G5
+  python -m cv.data_ingestion.l1_client --prefetch --storm 2024-10-G4
+  python -m cv.data_ingestion.l1_client --prefetch --storm 2024-05-G5
 """
 
 from __future__ import annotations
