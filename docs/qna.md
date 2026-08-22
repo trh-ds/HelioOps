@@ -36,7 +36,7 @@ Solar imagery (CCOR-1 / LASCO)
   ② ML IMPACT         6 LightGBM quantile models → GPS error + HF blackout, each with 95% CI
   ③ AGENTIC ADVISORY  4 industry agents in parallel, RAG over the real rulebooks
   ④ VERIFIER          zero-LLM rule engine — corrects unsafe numbers, doesn't just flag them
-  ⑤ DELIVERY          FastAPI REST + WebSocket → Next.js dashboard → Supabase Postgres
+  ⑤ DELIVERY          FastAPI REST + WebSocket → React console → Supabase Postgres
 
 Every advisory carries a 6-step provenance trace: raw_data → detection → impact → retrieval → verifier → output.
 
@@ -54,13 +54,13 @@ b) The verifier corrects rather than rejects. The canonical example from the bri
 
 c) They deleted their own ML where it wasn't defensible. The CV layer originally had a CNN (cv/cmecnn.py). It was removed because (1) no labeled training data exists for coronagraph CME segmentation, (2) NASA DONKI already publishes human-reviewed kinematics, (3) a deterministic detector is reproducible and needs no GPU. The deep dive calls this the most important engineering judgement in the repo, and it's right — they shipped less AI because a threshold plus an authoritative API is more defensible than a model trained on labels that don't exist.
 
-d) Uncertainty is an output, not a footnote. Operators get "GPS error 12.8 m, 95% CI 6.6–13.3 m", not a bare number. Measured interval coverage is 96.4% / 94.8% against a 95% target — the intervals mean what they claim.
+d) Uncertainty is an output, not a footnote. Operators get "GPS error 11.2 m, 95% CI 6.8–13.7 m", not a bare number. Measured interval coverage is 95.9% / 94.2% against a 95% target, at PINAW 0.037 / 0.194 — the intervals mean what they claim, and they are narrow enough to act on.
 
 Where "optimal" is doing some work (the honest caveats, §6 of the brief):
 
-- The impact models are trained on synthetic data. The R² of 0.986 measures how well the model learned the physics proxy rules it was generated from — not real-world accuracy. Retraining on NASA OMNIWeb historical data is the stated next step. Until that happens, ② is architecturally right but empirically unproven.
+- The impact models are trained on synthetic data — 4,800 rows generated from hand-written physics rules, seed 42, committed. R² measures how well the model recovered those rules, not real-world accuracy, which is why it is no longer quoted as a headline. The real-data track was built against NASA OMNI2 (1996–2025) and deleted on 2026-08-22: OMNI supplies every driver and no label, and the labels needed (IONEX TEC, GOES XRS+SEP) are not published in the required form. It is blocked, not merely unfinished. What is measured and not circular: interval calibration (PICP 95.9% / 94.2%) and the physical ordering gate in 03_anchor_test.py.
 - Only two demo storms are wired for replay; live mode exists but isn't the demo path.
-- CI gates are advisory (|| true), rate limiting and metrics are per-process (correct at one replica, wrong at three).
+- CI gates block now (the || true escape hatch is gone), but there is still no CD — images build and are never pushed. Rate limiting and metrics remain per-process: correct at one replica, wrong at three.
 
 Verdict: the architecture is optimal for the problem — the determinism/generative split, the verifier, the provenance chain are the right answers and would survive contact with a regulator. The data is not yet there. It's production-shaped, not production-proven, and the docs say exactly that rather than hiding it.
 
@@ -155,20 +155,16 @@ Results:
 ┌───────────────────┬──────────────┬─────────────┐
 │      Metric       │ GPS L1 error │ HF blackout │
 ├───────────────────┼──────────────┼─────────────┤
-│ R²                │ 0.9858       │ 0.9577      │
+│ PICP (target 95%) │ 95.90%       │ 94.21%      │
 ├───────────────────┼──────────────┼─────────────┤
-│ MAE               │ 0.1463 m     │ 0.0320      │
-├───────────────────┼──────────────┼─────────────┤
-│ PICP (target 95%) │ 96.40%       │ 94.77%      │
-├───────────────────┼──────────────┼─────────────┤
-│ PINAW             │ 0.0466       │ 0.1942      │
+│ PINAW             │ 0.0369       │ 0.1941      │
 └───────────────────┴──────────────┴─────────────┘
 
-PICP is the number that matters: when the model claims 95% confidence, the truth lands inside the stated interval 96.4% / 94.8% of the time. And the low PINAW says the intervals are tight — not trivially wide to game the coverage number.
+PICP is the number that matters: when the model claims 95% confidence, the truth lands inside the stated interval 95.9% / 94.2% of the time. And the low PINAW says the intervals are tight — not trivially wide to game the coverage number. R²/MAE are deliberately not quoted: fit to synthetic rows generated from hand-written rules, they measure rule-recovery, not forecast skill.
 
 Why quantile regression: a single number is operationally useless for a safety decision. A dispatcher deciding whether to close a polar route needs the plausible worst case, not the average case.
 
-The anchor test is the smartest piece here. Fed the May 2024 G5 storm (CME 1800 km/s, Kp 9.0), the model predicted 17.50 m GPS error (requirement > 15 m) and 84.27% HF blackout (requirement > 80%). This checks the model extrapolates into the rare-event regime instead of regressing toward the training mean — which is the exact failure mode that makes an R² of 0.98 worthless during an actual emergency.
+The anchor test is the smartest piece here, and it is a gate rather than a report — 03_anchor_test.py exits non-zero on failure and goes through inference.predict(), the serving path, so training/serving skew cannot slip past. Fed the May 2024 G5 storm (CME 1800 km/s, Bz −40 nT) it must clear 15 m GPS and 0.80 HF; fed a quiet G0/R0 baseline it must stay under 2 m and 0.60; and G5 must strictly exceed quiet on both. The quiet anchor is the point — a constant model passes any single-storm floor. Live values: G5 → 22.0 m / 94.7%, G4 → 11.2 m / 93.2%.
 
 Two production-hardening details:
 - Quantile monotonicity. Independently trained quantile models can cross — q97.5 landing below q50 gives an inverted, nonsense interval. Fixed with one line: ci_low, median, ci_high = sorted([q025, q500, q975]). One sorted() call kills a whole class of invalid output.
@@ -208,7 +204,7 @@ Why: operators need certainty that G4 always means CRITICAL for aviation. Determ
 
 6b. Orchestration
 
-AgentScope over LangGraph — a transparent message protocol with no graph-compilation step, plain asyncio.gather fan-out, and a debuggable call stack. Adding an industry is a one-line registry entry.
+Plain asyncio — no agent framework at all. AgentScope and LangChain were both dropped on 2026-08-21 for a 45-line groq wrapper: AgentScope supplied a message envelope a dict covers, langchain-core/langchain-groq supplied two dicts and an attribute read. The fan-out is four concurrent calls with no conditional edges, so a graph library was paying cold-start weight for nothing. What survives is the property that mattered: no compilation step between the code and the four HTTP requests, one Groq call site, and a debuggable call stack. Adding an industry is a one-line registry entry.
 
 Streaming while running: agents push events into an asyncio.Queue; the orchestrator drains it on a 50 ms tick while tasks are still in flight, so the dashboard shows agents thinking live. The post-loop final drain is the correctness detail — without it, events queued between the last poll and task completion would be silently dropped.
 
@@ -223,8 +219,8 @@ data/{aviation,grid,maritime,impact_matrix}/*.pdf
                             ├── aviation_kb        242 chunks
                             ├── grid_kb            101 chunks
                             ├── impact_matrix_kb   166 chunks
-                            ├── maritime_kb          2 chunks
-                            └── telecom_kb           0 chunks
+                            ├── maritime_kb          214 chunks
+                            └── telecom_kb           195 chunks   (918 total)
 
 Real regulatory sources: ICAO NAT Doc 007 (2025), NERC TPL-007-4 plus benchmark GMD and transformer-thermal docs, IMO GMDSS (2019), NOAA/NESDIS scales and impact memos.
 
@@ -310,17 +306,19 @@ Why it exists: RAG reduces hallucination, it does not eliminate it. Models still
 
 7. The Full Stack & DevOps layers — briefly
 
-Backend (FastAPI, hexagonal): the pipeline never imports cv.storm_event_generator.detect or ML_after_CV.inference directly. It talks to ports (abstract interfaces); adapters provide implementations. So storage swaps at runtime — RESULT_REPOSITORY picks in-memory or Supabase, same call sites, zero pipeline changes — and the ML layer is mockable in tests without touching real checkpoints.
+Backend (FastAPI, hexagonal): the pipeline never imports backend.cv.storm_event_generator.detect or backend.ml.inference directly — it goes through adapters, which are the only import site into a domain layer. The abstract ports/ package was deleted on 2026-08-21: one interface per implementation is ceremony, not decoupling, and the property that matters (the core never imports a layer) is enforced by a test, not by inheritance. Storage still swaps at runtime — HELIOOPS_RESULT_REPOSITORY picks in-memory or Supabase, same call sites, zero pipeline changes — and the ML layer is mockable in tests without touching real checkpoints.
 
 The load-bearing piece is schema_adapter.py, the anti-corruption layer. CV and GenAI were built by different people with different schemas and neither was rewritten. One file translates: storm_id → alert_id, scales["G"] → GScale enum, and so on. Integration cost is paid once in one file instead of being smeared across four modules owned by four people. That's "bridge, don't rewrite."
 
 Security at the boundary: security headers on every response, request IDs for log correlation, one pipeline run per storm per 30 s (the pipeline fans out to multiple LLM calls — this stops a refresh loop draining the Groq quota), and validate_storm_id() as an allowlist regex ^\d{4}-\d{2}-G[1-5]$ applied before the ID reaches any filesystem or DB path. The same gates apply on the WebSocket path, because a socket is a trust boundary too.
 
-Frontend (Next.js 14): typed API client with encodeURIComponent on every path param; 5xx and network errors retry once with exponential backoff while 4xx does not (a 404 won't fix itself); server stack traces never surfaced. The WS client is a small state machine with backoff from 1 s to a 30 s ceiling — malformed JSON is dropped not thrown, and a throwing listener is caught so one broken subscriber can't starve the rest. ErrorBoundary stops a render error in one card blanking the whole page, which is exactly the Groq-outage scenario in the runbook: detection and impact still render, advisory cards go empty.
+Frontend (Vite + React 18, replaced the Next.js app on 2026-08-21): three runtime dependencies — react, react-dom, three. Routing is 50 lines of pushState/popstate; a four-page site does not need a router library. The API client wraps every path param in encodeURIComponent, parses error bodies for detail and falls back to statusText, so server stack traces are never surfaced. Paths are relative by default, so the vite dev proxy and a single-origin deployment both need zero configuration — and a split Vercel/Spaces deployment needs VITE_API_URL set at BUILD time, because vite inlines import.meta.env and a runtime env var does nothing. Get that wrong and the vercel.json catch-all rewrite answers /api/* with the HTML shell and a 200, so every call dies inside res.json(). The WS client drops malformed JSON rather than throwing — one bad frame must not kill the stream. The console renders detection and impact even when advisory generation fails, which is exactly the Groq-outage scenario.
 
 Data layer: 8 tables, RLS, and invariants enforced in the database — CHECK (confidence BETWEEN 0 AND 1), UNIQUE (advisory_id, step), cascading FKs. Irregular physics payloads are JSONB; anything queried, constrained or joined is a real typed column.
 
-DevOps: Docker (two-stage, build toolchains never reach the runtime image) → GitHub Actions CI → Kubernetes (readiness hits /health/ready so a pod with unloaded models leaves the load balancer without being killed; liveness is a bare process check so a slow dependency never causes a restart loop; maxUnavailable: 0 for zero-downtime) → Terraform → ArgoCD (selfHeal reverts manual kubectl edit drift; rollback is git revert, not an SSH session) → structured JSON logs + Prometheus → scheduled Chaos Mesh experiments in staging only → four incident runbooks.
+DevOps: Docker → blocking GitHub Actions CI (lint, 271 tests, and all three Dockerfiles in an image matrix) → structured JSON logs keyed by storm_id plus Prometheus /metrics → three-tier health, where readiness asserts the knowledge base actually holds chunks → Hugging Face Spaces for the backend, Vercel for the frontend.
+
+The Kubernetes / Terraform / ArgoCD / Chaos Mesh stack that used to be described here was deleted on 2026-08-21. Stated plainly: an EKS cluster for two containers was the single largest cost item in the project, and it contradicts the scale-to-zero target. The app is one stateless process. Keeping manifests nobody applies is worse than not having them — they make the repo claim an operational maturity it never exercised.
 
 ---
 
@@ -374,7 +372,7 @@ Why this data, used this way:
 - Similarity scores are stored, not discarded — that's what makes citation verification and the confidence score possible.
 - Everything is persisted with provenance because a regulated operator cannot act on an untraceable output.
 
-The honest bit about data: the ML training set is synthetic. telecom_kb is deliberately empty and maritime_kb has 2 chunks — so the telecom agent honestly emits LOW_COVERAGE rather than inventing content. That empty KB is arguably the best demo in the whole system: it proves the thing reports thin evidence instead of filling the gap with confident fiction.
+The honest bit about data: the ML training set is synthetic — 4,800 rows generated from hand-written physics rules, seed 42, committed. The knowledge base, by contrast, is now fully ingested: 918 chunks across five collections (aviation 242, maritime 214, telecom 195, impact_matrix 166, grid 101). An earlier revision shipped with telecom_kb empty and framed that as a deliberate LOW_COVERAGE demonstration; that is no longer true, and the flag now fires only when retrieval is genuinely thin.
 
 ---
 
@@ -385,21 +383,19 @@ Straight from §7 of the deep dive and §6 of the brief, in rough priority:
 ┌─────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │           Limitation            │                                                  Why it matters                                                   │
 ├─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ ML trained on synthetic data    │ The headline R² of 0.986 measures rule-learning, not real-world accuracy. Fix: retrain on NASA OMNIWeb historical │
-│                                 │  data. This is the big one.                                                                                       │
+│ ML trained on synthetic data    │ R² measures rule-recovery, not forecast skill. BLOCKED, not deferred: the OMNI2 real-data track was built and    │
+│                                 │ deleted 2026-08-22 — OMNI has every driver and no label. This is the big one.                                     │
 ├─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ CI steps end in || true         │ Lint/test failures report but don't block merges. CI is advisory theatre right now.                               │
+│ _pick_key() waits unbounded     │ With every Groq key parked, /api/detect and /ws/stream stall for MINUTES with no error and no client timeout.      │
 ├─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Rate limiter + metrics in       │ Correct at one replica. At three, each pod counts and rate-limits independently — so the numbers are wrong and    │
 │ process memory                  │ the limit is 3× looser than stated. Needs Redis.                                                                  │
 ├─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Checkpoints + ChromaDB not in   │ CI runs shallow; fallbacks engage instead of real code paths.                                                     │
-│ git                             │                                                                                                                   │
+│ No cached FITS/PNGs in git      │ Too large to commit, so detect() silently falls back to backend/cv/stubs/*.json until cache_fits is run.          │
 ├─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ docker-build has push: false    │ No actual CD. Images never reach a registry.                                                                      │
 ├─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ maritime_kb = 2 chunks,         │ Two of four industries have thin or no evidence base ⇒ frequent LOW_COVERAGE.                                     │
-│ telecom_kb = 0                  │                                                                                                                   │
+│ /api/detect takes 65–80 s       │ Dominated by the gpt-oss-120b reasoning pass; host CPU is nearly irrelevant. A pooled key set is the only lever. │
 ├─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ In-memory repository is the     │ Results lost on restart unless Supabase is explicitly configured.                                                 │
 │ default                         │                                                                                                                   │
@@ -564,14 +560,14 @@ What makes it real, not a demo:
 1. They deleted their own ML when it wasn't defensible. The CNN was removed because no labeled data exists and DONKI already publishes reviewed kinematics. A gimmick adds AI for the pitch. This team removed it and wrote down why. That is the single strongest credibility signal in the repo.
 2. The verifier does actual work. It's not decoration — it catches "21 MHz," rewrites it to 5, records the correction, and shows the operator both. It exists because RAG doesn't eliminate hallucination, and they knew that.
 3. The failure modes are designed, not discovered. Every layer has a defined fallback, and every fallback errs toward caution: stub events, 20 m / 85% pessimistic defaults, ESCALATE TO SPECIALIST. And every degradation is visible — a flag, a health check, or a log event. Nothing degrades silently. That's an operations mindset, not a demo mindset.
-4. The tests are real and target failure paths. ~137 Python, ~255 frontend, weighted toward what actually breaks in an ops console: 29 API client tests, 24 WebSocket tests (reconnect backoff, malformed frames, listener isolation), error-boundary suites.
+4. The tests are real and target failure paths. 271 Python tests, and five of them exist because a bug shipped silently and they pin the fix: a circular import that broke `import backend.pipeline` on its own, a WebSocket event collision that stopped the frontend before verification, a write-path/read-path layout drift that degraded detection to the stub forever, a chroma path resolving one directory too deep so every knowledge base read zero, and a self-check that swallowed every exception so the guard was off with no error anywhere.
 5. The concurrency bugs are real bugs. The embedder prewarm is a genuine PyTorch meta-tensor race, found and fixed at the source rather than by adding a lock everywhere. The post-loop final drain in the event queue is a subtle correctness fix. You don't hit those without actually running the thing.
-6. The gaps are documented, not hidden. "Training data is synthetic. Our R² measures rule-learning, not accuracy." A gimmick leads with 0.986. This repo leads with 0.986 and then tells you exactly what it doesn't mean.
-7. The empty telecom_kb is deliberate. They left a knowledge base empty so the system would visibly emit LOW_COVERAGE. Choosing to demo your system's honesty about not knowing is the opposite of a gimmick.
+6. The gaps are documented, not hidden. A gimmick leads with an R² of 0.986. This repo has stopped quoting it as a headline at all, and quotes measured interval calibration instead — the one number on the ML layer that is not circular.
+7. They delete things that cannot be defended, repeatedly. Not just the CNN: the Kubernetes/Terraform/ArgoCD/chaos stack (cost, and it contradicts scale-to-zero), AgentScope and LangChain (a message envelope a dict covers), the Redis embedding cache (a cache for a command nobody runs twice), the abstract ports/ layer (one interface per implementation), and the OMNI2 real-data ML track (296 MB, ~1,500 lines, permanently blocked on labels). A repo that only ever grows is a repo where nothing was ever evaluated.
 
 Where it isn't proven yet:
 
-- The impact models have never seen a real storm. Until OMNIWeb retraining happens, ② is an architecture, not a validated predictor.
+- The impact models have never seen a real storm. ② is an architecture with calibrated intervals, not a validated predictor — and the real-data path is blocked on labels that no public dataset publishes in the required form, not merely unfinished.
 - Live mode exists but isn't the demo path — two cached storms.
 - CI doesn't block; there's no CD; metrics and rate limiting break past one replica.
 

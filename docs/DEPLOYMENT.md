@@ -44,11 +44,17 @@ That is fine — nobody types it, the bundle does.
 | Browser (IN) → hf.space (AWS us-east-1) RTT | ~250–300 ms, +2 RTT TLS on first connect |
 | CV stage (stub JSON) | ~1 ms |
 | ML stage | ~200 ms first call (lazy `joblib.load`), ~10 ms after |
-| Advisory stage — 4 agents **in parallel** | ~6–12 s |
+| Advisory stage — 4 agents **in parallel** | **~65–78 s** |
 | Verification stage (deterministic, no LLM) | ~ms |
-| **Total `/api/detect`** | **~8–15 s, ~95 % Groq** |
+| **Total `/api/detect`** | **65–80 s, ~99 % Groq** |
 
-Cross-region network is ~2–3 % of total. It is not the bottleneck.
+Cross-region network is well under 1 % of total. It is not the bottleneck, and neither is host CPU.
+
+> **Corrected 2026-08-22.** This budget previously said 8–15 s. Measured end to end against both
+> anchor storms, warm, `/api/detect` takes **65–80 s** — the `gpt-oss-120b` reasoning pass dominates
+> and chain-of-thought is billed against `max_tokens`. A pooled Groq key set is the only real lever:
+> TPM is metered per `(key, model)`, so each extra key is a full extra budget and cuts wall time
+> roughly linearly. It buys throughput, not accuracy.
 
 ### The three real latency risks
 
@@ -56,8 +62,10 @@ Cross-region network is ~2–3 % of total. It is not the bottleneck.
    pipeline call ⇒ 1–3 min for the first request after a sleep. Mitigations:
    (a) run the slimming diffs in §7, (b) hit the Space once before any demo,
    (c) an external cron pinging `/health/live` under 48 h keeps it awake.
-2. **Groq free-tier rate limits.** One run = 4 concurrent 70B calls + 4 concurrent
-   8B self-checks. Two simultaneous users can trip TPM.
+2. **Groq free-tier rate limits.** One run = 4 concurrent `gpt-oss-120b` calls plus 4
+   concurrent `gpt-oss-20b` self-checks. The two models are separate TPM buckets, which is
+   why the self-check is on the smaller one. Two simultaneous users can still trip TPM;
+   with all keys saturated the run does not fail, it waits.
    `self_check_hallucination()` swallows the exception and returns
    `"self-check skipped"` — the guardrail turns off with no error surfaced.
 3. **Do NOT use a `vercel.json` rewrite** to proxy `/api/*`. It adds a hop, cannot
@@ -152,7 +160,7 @@ Build takes ~10–15 min (torch). Watch the Space's build logs.
 API=https://<user>-helioops.hf.space
 curl -s $API/health/ready
 curl -s $API/api/storms
-curl -s -X POST $API/api/detect/2024-10-G4 | head -c 400   # expect 8-15s
+curl -s -X POST $API/api/detect/2024-10-G4 | head -c 400   # expect 65-80s
 ```
 
 Then confirm the RAG layer is actually alive — a silent Chroma permission failure
@@ -207,8 +215,10 @@ Caveat: Vercel Hobby is non-commercial per their ToS.
 ### 3b — Actually wire it to the backend (new work)
 
 1. Read the base URL once: `const API = import.meta.env.VITE_API_URL`
-2. REST: `POST ${API}/api/detect/${stormId}` — set a client timeout **above 20 s**;
-   the happy path is 8–15 s.
+2. REST: `POST ${API}/api/detect/${stormId}` — set a client timeout **above 120 s**;
+   the happy path is 65–80 s. Note `_pick_key()` waits for TPM budget in an unbounded
+   `while True`, so with every key parked the request can stall for minutes with no
+   error — a client-side timeout is the only bound that exists today.
 3. WS: `new WebSocket(API.replace('https', 'wss') + '/ws/stream')`.
    The server validates `Origin` against `HELIOOPS_CORS_ORIGINS`.
 4. Handle the event contract from `stream_full_pipeline`: `pipeline.stage`
@@ -227,7 +237,7 @@ Caveat: Vercel Hobby is non-commercial per their ToS.
 
 - [ ] `https://heliops.dpdns.org` serves the SPA over valid TLS
 - [ ] `curl $API/health/ready` → ready
-- [ ] `POST /api/detect/2024-10-G4` returns in 8–15 s with a non-empty `cv_event`
+- [ ] `POST /api/detect/2024-10-G4` returns in 65–80 s with a non-empty `cv_event`
 - [ ] Advisories carry citations (RAG alive — see §1.5)
 - [ ] `/ws/stream` connects **from the deployed origin**, not just localhost
 - [ ] A wrong-origin WS connect is rejected with code 4003

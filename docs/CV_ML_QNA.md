@@ -891,8 +891,8 @@ pins this behaviour.
 
 ### Q11.5 "Your 95% intervals — are they actually 95%?"
 
-Today: measured PICP 96.4% / 94.8% against a 95% target, on our own test set. That is an
-empirical observation on one sample, and it is stated that way.
+Today: measured PICP **95.9% GPS / 94.2% HF** against a 95% target, on our own test set (PINAW
+0.0369 / 0.1941). That is an empirical observation on one sample, and it is stated that way.
 
 After conformal calibration it becomes a **guarantee** rather than an observation:
 distribution-free, finite-sample, assuming only exchangeability. Stratified per G-scale,
@@ -1019,23 +1019,21 @@ We would rather hand you an accurate map of both lists than a demo that blurs th
 | DONKI measurement radius | **21.5 R☉** (WSA–ENLIL inner boundary) |
 | L1 distance / ETA | 1.5 million km; **15–60 min** warning |
 | Quantiles | **α = 0.025, 0.500, 0.975** |
-| Shipped checkpoints | **6** LightGBM models, ~470 KB total |
+| Shipped checkpoints | **6** LightGBM models, **527 KB** total (the whole `backend/ml/` layer is 764 KB) |
 | Shipped features | **9** (2 hardcoded) |
-| Designed features | **38** |
-| Training data (shipped) | 4,800 synthetic rows, 120 storms × 40 frames |
-| Training data | **synthetic**, 4,800 rows = 120 storms x 40 frames, seed 42 |
+| Designed features | **38** — *real-data track, deleted 2026-08-22* |
+| Training data (shipped) | **synthetic**, 4,800 rows = 120 storms × 40 frames, seed 42, committed |
 | Interval calibration | PICP **95.9%** GPS / **94.2%** HF against nominal 95% |
 | Kp = 9 hours in 30 years | **18** |
-| Embargo | **120 h** (autocorrelation r < 0.1 only past 120 h) |
-| Outer holdout | **SC25 (2020–2025)** — a whole solar cycle; both anchors are in it |
-| Coupling gain | Newell/ε beat raw Bz by **+69% on Kp**, **+24% on AE** |
-| Rolling-window gain | Dst ρ **0.382 → 0.691** (1 h → 24 h) |
-| Measured PICP | 96.4% / 94.8% vs a 95% target |
+| Embargo | **120 h** (autocorrelation r < 0.1 only past 120 h) — *deleted track* |
+| Outer holdout | **SC25 (2020–2025)** — a whole solar cycle — *deleted track* |
+| Coupling gain | Newell/ε beat raw Bz by **+69% on Kp**, **+24% on AE** — *measured on OMNI2, deleted track* |
+| Rolling-window gain | Dst ρ **0.382 → 0.691** (1 h → 24 h) — *deleted track* |
 | Anchor: 2024-05-G5 | GPS **22.0 m** (CI 13.3–25.9), HF **94.7%** — passes >15 m, >0.80 |
 | Anchor: 2024-10-G4 | GPS **11.2 m** (CI 6.8–13.7), HF **93.2%** |
-| GPU speedup, measured | 5.76 s CUDA vs 8.51 s CPU — **1.5×**, not 10× |
+| GPU speedup, measured | 5.76 s CUDA vs 8.51 s CPU — **1.5×**, not 10× (serving is CPU-only) |
 | CV determinism | Byte-identical output; no RNG, no weights |
-| Tests | 154 passing |
+| Tests | **271** passing |
 
 ---
 

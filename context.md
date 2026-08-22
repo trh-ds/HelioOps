@@ -1,484 +1,426 @@
 # HelioOps — Project Context
 
-> Paste this file into a fresh Claude chat to get the full picture of this repo.
+> Paste this file into a fresh chat to get the full picture of this repo.
 > It is standalone: it covers what the project is, how it works, what the code
 > actually does today, and where the docs and the code disagree.
 >
-> Generated 2026-08-21 from a full read of the repo at commit `232ea94`.
+> **Regenerated 2026-08-22** from a full read of the repo at commit `2ea377a`.
+> The previous revision described the pre-refactor 18-folder tree and is void;
+> `REFACTOR_MAP.md` maps the old paths to the current ones.
 
 ---
 
 ## 1. What this is
 
-**HelioOps** is a real-time space weather platform. It detects geomagnetic storms
-from solar imagery and generates regulatory-compliant operational advisories for
-four industries: **aviation, power grid, maritime, telecom**.
+**HelioOps** is a space-weather operations platform. It detects a coronal mass ejection (CME)
+from coronagraph imagery, predicts what the resulting geomagnetic storm does to four industries,
+and generates regulator-cited operational advisories — each one machine-verified against the
+authoritative constants before an operator ever sees it.
 
-It is a **4-person student/hackathon project**, built in one week (8–14 June 2026),
-80 commits, currently dormant. It is engineered like a production system
-(hexagonal architecture, k8s, Terraform, ArgoCD, chaos engineering) but has never
-been deployed to a real cluster. Treat the DevOps layer as a *deliverable artifact*,
-not live infrastructure.
+The claim that distinguishes it from "an LLM over some PDFs" is the **verifier**: a zero-LLM rule
+engine downstream of generation that *rewrites* unsafe values and records the correction. The
+canonical case is an agent proposing "switch HF to 21 MHz"; 21 is not in the ICAO NAT set
+`{3, 5, 8, 11, 17}`, so the verifier rewrites it to 5 MHz, logs a `VerifierCheck`, and streams the
+block to the dashboard. The operator sees both the proposal and the enforcement.
 
-- **Repo:** `https://github.com/Neal006/private-helioops.git` (branch `main`)
-- **Local path:** `C:\Users\Tirth Patel\HelioOps_Private` (Windows — use PowerShell)
-- **Working tree:** clean, matches origin
+**Demo/replay oriented.** Two anchor storms replay deterministically: `2024-10-G4` and
+`2024-05-G5`. Live mode exists (`detect_live()`) but the cached path is what the demo runs.
 
 ### Team & ownership
 
-| Member | Layer | Commits |
-|---|---|---|
-| Neal (`Neal006`) | Layer 1 CV detection, ML integration, dashboard, backend security | 33 |
-| Tirth (`trhatwork@gmail.com`) — *you* | Layer 4 frontend dashboard, DevOps, deployment | 22 |
-| Priyanshu Doshi | Layer 3 GenAI advisory, verifier, backend pipeline, database | 14 |
-| Parshva (`SoulBreaker9`) | Layer 2 ML impact models, synthetic data | 11 |
+| Owner | Layer |
+|---|---|
+| **Neal** | Layer 1 — CV detection, ML pipeline |
+| **Parshva** | Layer 2 — data engineering, impact models |
+| **Priyanshu** | Layer 3 — GenAI advisory, backend pipeline, database |
+| **Tirth** | Layer 4 — frontend console, DevOps, deployment |
 
 ---
 
-## 2. The four-layer pipeline
+## 2. The five-stage pipeline
 
 ```
-Solar imagery (FITS/PNG) + NOAA alerts
-  │
-  ├─ Layer 1  cv/            Deterministic CME detection on running-difference
-  │                          frames + NASA DONKI physics + GOES XRS flare class
-  │                          + DSCOVR L1 solar wind  →  StormEvent
-  │
-  ├─ Layer 2  ML_after_CV/   6 LightGBM quantile models (q0.025/q0.5/q0.975)
-  │                          →  GPS L1 error ±95% CI, HF blackout prob ±95% CI
-  │
-  ├─ Layer 3  genai/         Deterministic G-scale routing → 4 parallel industry
-  │                          agents (AgentScope + Groq Llama 3.3 70B + ChromaDB
-  │                          RAG) → 10-layer anti-hallucination guardrails →
-  │                          zero-LLM rule verifier  →  VerifiedAdvisory
-  │
-  └─ Layer 4  backend/ +     FastAPI REST + WebSocket; Next.js 14 dashboard.
-              frontend/      Optional Supabase PostgreSQL persistence.
+Solar imagery (CCOR-1 / LASCO FITS) + DONKI + GOES XRS + DSCOVR L1
+        |
+   (1) CV DETECTION        deterministic 9-step threshold detector, no RNG, no weights
+        |                  fused with NASA physics -> StormEvent {confidence, G/S/R, kinematics}
+        v
+   (2) ML IMPACT           6 LightGBM quantile models (q025 / q500 / q975 x 2 targets)
+        |                  -> GPS L1 error +/- 95% CI, HF blackout probability +/- 95% CI
+        v
+   (3) AGENTIC ADVISORY    4 industry agents in parallel, RAG over the real rulebooks
+        |                  918 chunks, layered guardrails
+        v
+   (4) DETERMINISTIC VERIFIER   ICAO HF bands, GMDSS channels, reroute latitudes, NERC GIC
+        |                       corrects the value; does not merely flag it
+        v
+   (5) DELIVERY            FastAPI REST + WebSocket -> React console -> optional Supabase
 ```
 
-The core design bet: **LLMs generate prose, deterministic code owns every
-safety-critical number.** Severity comes from a hardcoded G-scale matrix, and a
-zero-LLM verifier corrects HF frequencies, reroute latitudes, GIC steps, and
-GMDSS channels before anything reaches an operator. Every advisory carries a
-6-step `ProvenanceTrace` from raw data to output.
+Every advisory carries a **6-step provenance trace**:
+`raw_data -> detection -> impact -> retrieval -> verifier -> output`.
+
+**Latency:** `/api/detect` takes **65–80 s** end to end. The `gpt-oss-120b` reasoning pass
+dominates; host CPU is nearly irrelevant. Anything in the docs claiming 8–15 s is stale.
 
 ### Only two storms exist
 
-`2024-10-G4` (Oct 10 2024, G4, CME 1480 km/s, Kp 8.3, X1.8/R3) and
-`2024-05-G5` (May 10 2024, G5, CME 2200 km/s, Kp 9.0, X5.8/R5).
-Anything else 404s. **Adding a storm means editing two independently maintained
-lists**: `cv/detect.py:38` `STORM_CONFIGS` *and* `backend/config.py:64`
-`AVAILABLE_STORM_IDS`.
+`STORM_CONFIGS` in `backend/cv/storm_event_generator/detect.py` defines `2024-10-G4` and
+`2024-05-G5`. `validate_storm_id()` enforces `^\d{4}-\d{2}-G[1-5]$` before anything touches a
+filesystem or database path, and an ID that passes the regex but is not in `STORM_CONFIGS` 404s.
 
 ---
 
 ## 3. Repo map
 
+Three folders, plus `.github/` (GitHub Actions requires it at the repo root) and `docs/`.
+
 ```
-HelioOps_Private/
-├── cv/                    Layer 1 — detect.py (entry), preprocessing.py,
-│                          threshold_detector.py, donki_client.py,
-│                          flare_classifier.py, l1_client.py, fusion.py,
-│                          cache_fits.py
-├── ML_after_CV/           Layer 2 — inference.py (entry), 01_data_generation_eda.py,
-│                          02_train_and_tune.py, 03_anchor_test.py,
-│                          data/synthetic_storms.csv, FINAL_RESULTS.md
-│                          ⚠ checkpoints/ is ABSENT (see §6)
-├── genai/                 Layer 3 — orchestrator.py, impact_router.py, retriever.py,
-│                          guardrails.py, verifier.py, contracts.py, models.py,
-│                          config.py, agents/{aviation,grid,maritime,telecom,base}.py,
-│                          prompts/{...}.py
-├── embeddings/            RAG build — embedder.py (BGE-small-en-v1.5), chunker.py,
-│                          retrieval.py, collections.py, ingest_{aviation,grid,
-│                          maritime,impact_matrix}.py
-├── backend/               Layer 4 API — app.py, pipeline.py, adapter.py, config.py,
-│                          logging.py, health.py, middleware.py, run.py,
-│                          ports/{detection,prediction,advisory,repository}.py,
-│                          adapters/{detection,prediction,advisory,repository,schema}_adapter.py
-├── frontend/              Next.js 14 dashboard (see §5)
-├── supabase/              001_schema.sql, 002_rls.sql, 003_seed.sql
-├── ml/stubs/              Fallback StormEvent JSON for both storms — THIS IS WHY
-│                          THE DEMO WORKS WITHOUT CACHED IMAGERY
-├── data/                  Source regulatory PDFs (11 MB committed) + gitignored caches
-├── tests/                 7 pytest files, 137 tests (see §7)
-├── runbooks/              4 ops playbooks (detection-failure, groq-outage,
-│                          high-error-rate, high-latency)
-├── k8s/ infra/ argocd/ chaos/   IaC — real, well-formed, never deployed (§8)
-├── docs/                  notebooklm_script.md, ml_research/eda_plots/,
-│                          archived/{change_in_plan,ml_dl}.md
-├── .github/workflows/ci.yml
-├── Dockerfile.backend  Dockerfile.frontend  docker-compose.yml
-├── requirements-{backend,genai,data}.txt
-├── README.md              537 lines, the primary doc — mostly accurate, see §9
-├── ARCHITECTURE_CHANGES.md   Narrative of the 11 production-hardening additions
-├── CI_CD_REQUIREMENTS.txt    Team checklist of missing data artifacts — honest
-└── pdf.md                    17-slide pitch deck narrative
+HelioOps/
+├── Dockerfile                 <- Hugging Face Spaces builds THIS, not deployment/Dockerfile.backend
+├── README.md                  carries HF Spaces front matter — do not delete the --- block
+├── AGENTS.md                  project memory: architecture, conventions, gotchas, decisions log
+├── backend/                   FastAPI monolith — all four layers, one process
+│   ├── app.py                 routes, CORS, middleware, WebSocket manager
+│   ├── pipeline.py            5-stage orchestration; owns the adapter singletons
+│   ├── paths.py               BACKEND_DIR / DATA_DIR / CHROMA_DIR / STUBS_DIR / CHECKPOINT_DIR / ML_DATA_DIR
+│   ├── health.py              /health, /health/live, /health/ready, /metrics
+│   ├── preflight.py           read-only pre-run conflict check (GET /api/preflight/{id})
+│   ├── middleware.py          security headers, request IDs, rate limit, input validation
+│   ├── config.py              Pydantic BaseSettings, HELIOOPS_ env prefix
+│   ├── __init__.py            loads .env for EVERY entry point; sets LOKY_MAX_CPU_COUNT
+│   ├── adapters/              the seam: detection / prediction / advisory / repository / schema
+│   ├── cv/                    data_ingestion, image_threshold_algorithm, storm_event_generator, stubs
+│   ├── ml/                    01_ 02_ 03_ scripts + inference.py + checkpoints/ (6 pkl, 527 KB)
+│   ├── genai/                 agents/, prompts/, orchestrator, retriever, guardrails, verifier, llm
+│   ├── embeddings/            chunker, embedder, collections, 5 ingest CLIs, retrieval
+│   ├── data/                  aviation/ grid/ maritime/ telecom/ impact_matrix/ cached/ chroma_db/
+│   └── tests/                 271 tests across 11 modules + conftest + fixtures
+├── deployment/                Dockerfile.backend, Dockerfile.frontend, docker-compose.yml, supabase/
+├── frontend/                  Vite + React 18 SPA (marketing pages + live console)
+└── docs/                      PRODUCT_BRIEF, TECHNICAL_DEEP_DIVE, CV_ML_QNA, qna, DEPLOYMENT, HOW_TO_DEPLOY_BACKEND
 ```
+
+**Stale directories in a working copy.** A local clone that predates the refactor may still hold
+empty `cv/`, `ml/`, `genai/`, `embeddings/`, `tests/`, `data/`, `k8s/`, `infra/`, `argocd/`,
+`chaos/`, `runbooks/`, `ML_after_CV/`, `backend/ports/` and `frontend/__tests__/` directories
+containing nothing but `__pycache__`. None of them are tracked. They are leftovers, not code.
 
 ---
 
 ## 4. Backend (`backend/`)
 
-FastAPI, hexagonal architecture (ports = abstract interfaces, adapters = impls).
-
 ### Routes
 
-| Method | Path | Handler | File:line |
-|---|---|---|---|
-| POST | `/api/detect/{storm_id}` | `detect_storm` | `backend/app.py:138` |
-| GET | `/api/storms` | `list_storms` | `backend/app.py:187` |
-| GET | `/api/advisory/{advisory_id}` | `get_advisory_endpoint` | `backend/app.py:207` |
-| GET | `/api/result/{storm_id}` | `get_result_endpoint` | `backend/app.py:217` |
-| WS | `/ws/stream` | `websocket_stream` | `backend/app.py:244` |
-| GET | `/health` | | `backend/health.py:84` |
-| GET | `/health/live` | | `backend/health.py:93` |
-| GET | `/health/ready` | | `backend/health.py:98` |
-| GET | `/metrics` | Prometheus text | `backend/health.py:146` |
-
-Rate limit: 30s between pipeline runs per storm ID.
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/detect/{storm_id}` | all 5 stages; validated + rate-limited (1 run per storm per 30 s) |
+| GET | `/api/preflight/{storm_id}` | read-only dry run — predicted fallbacks, cross-source conflicts, quota state |
+| GET | `/api/storms` | available storms + summary of completed runs |
+| GET | `/api/advisory/{advisory_id}` | verified advisory + provenance trace |
+| GET | `/api/result/{storm_id}` | complete stored pipeline result |
+| WS | `/ws/stream` | live event stream |
+| GET | `/health`, `/health/live`, `/health/ready` | three tiers |
+| GET | `/metrics` | Prometheus text exposition |
 
 ### WebSocket protocol
 
-Send `{"action": "run_pipeline", "storm_id": "2024-10-G4"}`. Receive a stream of:
-`pipeline.stage`, `agent.thinking`, `advisory.generated`, `verifier.check`,
-`advisory.verified`, `pipeline.complete`, `pipeline.error`, `agent.error`.
+Client sends `{"action": "run_pipeline", "storm_id": "..."}`. Server streams:
 
-### Middleware — order gotcha
+```
+pipeline.stage -> agent.thinking -> advisory.generated -> verifier.check -> pipeline.complete
+                                            (agent.error | error)
+```
 
-`app.py` registers CORS (74) → SecurityHeaders (81) → RequestID (82). Starlette
-**prepends**, so actual request-time execution is the reverse:
-`RequestID → SecurityHeaders → CORS → route`. Undocumented anywhere else.
+The same validation gates apply as on REST — a socket is a trust boundary too. Origin is checked
+against `CORS_ORIGINS` **before the handshake completes**; a mismatch closes with code `4003`,
+which looks like a backend fault rather than a CORS error if you are not expecting it.
 
-### Ports & adapters — partly decorative
+### Adapters — the seam
 
-- `CVDetectionAdapter` and `MLPredictionAdapter` are wired and live (`app.py:86-87`).
-- `GenAIAdvisoryAdapter` / `GenAIVerificationAdapter` are instantiated at
-  `app.py:88-89` but **never called** — `backend/pipeline.py` imports
-  `genai.run_pipeline` / `genai.stream_pipeline` / `genai.verifier.verify_advisory`
-  directly (`pipeline.py:125,138,288,318`). The advisory port layer is ornamental.
-- `LiveDetectionAdapter` is named in `DetectionPort`'s docstring but **does not exist**.
-- `FallbackPredictionAdapter` exists but is never wired; the real fallback lives
-  inside `ML_after_CV/inference.py:predict()`.
+`backend/pipeline.py` never imports `backend.cv…`, `backend.ml` or `backend.genai` directly. It
+constructs four adapter instances at module level; `app.py` imports **those same instances**, so
+there is exactly one of each in the process.
 
-### Two copies of the schema bridge — maintenance trap
+The abstract `ports/` package was **deleted on 2026-08-21**. One interface per implementation is
+ceremony, not decoupling. The property that matters — the core never imports a layer — is enforced
+by `TestNoCircularImports`, not by inheritance.
 
-`cv.fusion.StormEvent` and `genai.models.StormEvent` are different schemas. The
-bridge exists **twice, with byte-identical logic**:
-- `backend/adapter.py:45` `adapt_storm_event()` — **this is the live one**
-  (imported inline at `pipeline.py:106` and `:256`)
-- `backend/adapters/schema_adapter.py:42` `adapt_storm_event()` — imported at
-  `app.py:56`, never called. Dead.
+`backend/adapters/schema_adapter.py` is the anti-corruption layer between
+`cv.storm_event_generator.fusion.StormEvent` and `genai.models.StormEvent`. The two layers were
+built by different people with different schemas and neither was rewritten; the integration cost is
+paid once, in one file.
 
-Fixing a bug in one will not fix the other.
+### Pre-flight (`backend/preflight.py`)
 
-### Two copies of result state
+`GET /api/preflight/{storm_id}` is a **read-only dry run**: it predicts which fallbacks the run
+will hit (stub replay, missing DONKI/flare/L1/alert caches), runs four cross-source physics
+conflict rules using the *same parsers the real run uses*, and reports health, rate-limit and
+Groq TPM state. Returns `{storm_id, ready, estimated_duration_s, findings[]}` with severities
+`block` / `warn` / `info`.
 
-`backend/pipeline.py:44-45` keeps module-global `_RESULTS` / `_ADVISORY_INDEX`
-dicts that are **always in-memory**, regardless of `HELIOOPS_RESULT_REPOSITORY`.
-The swappable `result_repo` (memory ↔ Supabase) is populated separately by
-`_persist_result()` in `app.py` and only serves the GET endpoints. The README's
-"swap persistence with one env var" is true for reads, not for the pipeline's own
-bookkeeping.
+Three invariants, each of which exists because breaking it is easy and silent:
+
+- **Never fetches, never writes, never mkdirs.** Cache files are `stat`-ed *before* any parser
+  runs, because the ingestion clients are cache-first-then-network and mkdir on entry.
+- **Uses `peek_rate_limit()`, not `check_rate_limit()`** — the latter records the call, so
+  checking whether you may run would consume the run slot.
+- **Never probes the Groq API.** Headroom is this process's own TPM accounting; probing would
+  spend the quota the check protects.
+
+The Dashboard routes every Run through it: preflight -> confirm panel (summary pills +
+`<details>` findings) -> `Run` / `Run anyway` / `Cancel`. It never hard-blocks, and if preflight
+itself fails the run starts directly.
+
+### Health checks
+
+```python
+health_collector.register("detection",      _check_detection)       # STORM_CONFIGS non-empty
+health_collector.register("ml_models",      _check_ml)              # all 6 checkpoints load
+health_collector.register("genai_module",   _check_genai)           # genai.impact_router importable
+health_collector.register("knowledge_base", _check_knowledge_base)  # every KB holds chunks
+```
+
+`knowledge_base` exists because `genai_module` is an *import probe* that returns `True` against a
+completely empty database, and `retrieve_chunks()` swallows storage errors and returns `[]`. Without
+a chunk count there is no automatic signal anywhere in the system that RAG is dead.
+
+### Result storage
+
+`HELIOOPS_RESULT_REPOSITORY` picks `memory` (default) or `supabase`. In-memory means results are
+lost on restart — fine for a demo, wrong for a deployment.
 
 ---
 
 ## 5. Frontend (`frontend/`)
 
-Next.js 14 App Router, React 18, TypeScript, Tailwind 3.4. Dark theme only.
+**Vite + React 18 SPA.** Replaced the Next.js 14 App Router app on 2026-08-21. Runtime dependencies
+in full: `react`, `react-dom`, `three@0.134`. No TypeScript, no Tailwind, no eslint config, no
+router library.
 
-### Routes
+```
+frontend/src/
+├── main.jsx  router.jsx  PageShell.jsx  Nav.jsx  Loader.jsx
+├── Home.jsx  Problem.jsx  Industries.jsx  About.jsx   marketing pages (copy lives in data.js)
+├── Dashboard.jsx                                      the live console
+├── api.js            getHealth/getStorms/getResult/getAdvisory/runPipeline/streamPipeline
+├── helio-globe.js    raw three.js, no react-three wrapper
+├── data.js           all static copy in one module
+└── data.test.mjs     what `npm test` runs
+```
 
-| Path | File |
-|---|---|
-| `/` | `src/app/page.tsx` — marketing landing, scroll-scrubbed 178-frame canvas animation |
-| `/dashboard` | `src/app/dashboard/page.tsx` — ⚠ **duplicate/stale** copy of the storms list |
-| `/dashboard/storms` | `src/app/dashboard/storms/page.tsx` — the real storm list (skeletons, empty state, error boundary) |
-| `/dashboard/storms/[stormId]` | detail: CV scales, CME/solar wind, impact, run-pipeline button |
-| `/dashboard/pipeline` | WebSocket pipeline runner + live progress + event stream |
-| `/dashboard/results/[stormId]` | full results: advisories, verified advisories, provenance |
-| `/dashboard/health` | health/readiness + parsed Prometheus metrics, 10s auto-refresh |
+`router.jsx` is ~50 lines: `pushState`, a `popstate` listener, one anchor-scroll effect, and a
+`<Link>` that defers to the browser on meta/ctrl/shift/alt-click.
 
-### Key files
+**The API base is `VITE_API_URL`** — NOT the Next-era `NEXT_PUBLIC_API_URL`, which nothing reads.
+Vite inlines it at **build** time, so a runtime environment variable does nothing. Empty default =
+relative paths, which is correct for the dev proxy and for single-origin deploys, and **wrong on
+Vercel**, where the catch-all rewrite answers `/api/*` with `index.html` and a 200, so every call
+dies inside `res.json()`.
 
-- `src/lib/api.ts` — typed fetch wrapper, `ApiError`, 1 retry w/ backoff on 5xx,
-  `parseMetrics()` Prometheus text parser. Base URL: **`NEXT_PUBLIC_API_URL`**
-  (defaults `http://localhost:8000`).
-- `src/lib/ws-client.ts` — `WsClient` singleton, auto-reconnect 1s→30s cap, pub/sub.
-- `src/types/storm.ts` (321 lines) — single source of truth, hand-mirrored from
-  `backend/pipeline.py`, `genai/models.py`, `genai/contracts.py`. Includes a
-  `WsEvent` discriminated union with runtime type guards. **Not generated — keep
-  in sync manually when backend schemas change.**
-- `next.config.mjs` — dev `rewrites()` proxy `/api`, `/health`, `/metrics`, `/ws` → `localhost:8000`.
+`vite.config.js` proxies `/api`, `/health`, `/metrics` to `http://127.0.0.1:8000` and `/ws` to
+`ws://127.0.0.1:8000`, so local dev needs no configuration at all.
 
-### Components
-
-`components/`: EmptyState, ErrorBoundary, Footer, FrameScroller, Navbar,
-SectionOverlay, Skeleton, Toast.
-`components/dashboard/`: AdvisoryCard, DashboardErrorBoundary, ImpactDisplay,
-MetricsDisplay, PipelineProgress, ProvenanceChain, Sidebar, StormCard, StreamLog,
-TopBar, VerifiedAdvisoryCard.
-
-### Styling
-
-Tailwind tokens: `deep.black #09090b`, `deep.900/800/700`, `aurora #00FF9D`
-(brand green, + light/dark/glow), `warm #f59e0b`. Fonts: Space Grotesk (display/body),
-JetBrains Mono. Utilities in `globals.css`: `.glass`, `.glass-strong`,
-`.gradient-text*`. Conditional classes via `cn()` (`clsx` + `tailwind-merge`).
-
-### Frontend cruft
-
-- `three`, `@react-three/fiber`, `@react-three/drei`, `lenis` — installed, **zero
-  imports**. Dead weight from an abandoned 3D hero.
-- `eslint-config-next ^16.2.9` alongside `next ^14.2.35` — accidental major bump.
-- Navbar/Footer links all `href="#"`; "Sign In" button has no handler.
-- `frontend/dashboard_implementation.md` — a planning doc left in the tree.
-
-### Frontend tests
-
-Vitest 4.1.8 + jsdom + Testing Library. `npm test` (run) / `npm run test:watch`.
-**24 files, 255 test cases** — 19 component/page tests, 4 lib tests, 1 types test.
+> **Port note:** vite binds IPv6 only. `http://localhost:3000` works; `http://127.0.0.1:3000` gets
+> connection-refused. If 3000 is occupied vite silently moves to 3001 and prints it.
 
 ---
 
 ## 6. ⚠ What is missing on a fresh clone
 
-This is the single most important section. The repo **ships without three
-artifacts** and every layer degrades silently rather than failing loudly.
-`CI_CD_REQUIREMENTS.txt` documents this in the team's own words.
+| Missing | Effect | Fix |
+|---|---|---|
+| **Cached FITS / PNGs** | gitignored (too large). `detect()` silently falls back to `backend/cv/stubs/*.json` | run `cache_fits` then `preprocessing` |
+| **`.env`** | no `GROQ_API_KEY`; every advisory becomes `ESCALATE TO SPECIALIST` | `cp .env.example .env`, set the key |
+| **AWS CLI** | `cache_fits.sync_ccor1` shells out to `aws s3 sync --no-sign-request`; it is not a pip dependency | install the AWS CLI, or skip CCOR-1 |
 
-| Missing | Consequence |
-|---|---|
-| `ML_after_CV/checkpoints/*.pkl` (6 models) | `predict()` always hits the fallback branch (`inference.py:111`) and returns hardcoded **GPS 20.0 m [8–35], HF 85% [60–95]** for *every* storm. The G4/G5 numbers in the README's example JSON are unreachable until someone runs `02_train_and_tune.py`. Also: **`lightgbm` and `joblib` are in no requirements file**; `joblib` is imported in a try/except and silently disables ML. |
-| `data/chroma_db/` | ChromaDB `PersistentClient` silently creates an **empty** DB. `retrieve_chunks()` returns `[]`, prompts get `[NO CONTEXT RETRIEVED]`, `sources_cited` fails validation, all 3 retries exhaust, and **every** advisory becomes the `ESCALATE_TO_SPECIALIST` fallback with `LOW_COVERAGE`. Looks like a bug; is actually "you forgot to run the ingest scripts." |
-| `data/cached/{ccor1,lasco,donki,xrs,l1}/` | Only `data/cached/alerts/*.txt` exists. **This one is fine** — `cv/detect.py:129-133` falls back to `ml/stubs/storm_event_*.json`, which *are* committed, so Layer 1 works end-to-end out of the box exactly as documented. |
-
-Fix RAG with:
-```powershell
-python -m embeddings.ingest_aviation
-python -m embeddings.ingest_grid
-python -m embeddings.ingest_maritime
-python -m embeddings.ingest_impact_matrix
-```
+**Committed and present:** the 6 ML checkpoints, the ChromaDB store (918 chunks, ~20 MB), the
+synthetic training set, and the CV stub events. None of those need regenerating to serve.
 
 ### Other landmines
 
-- **`GROQ_API_KEY` is required but never fails fast.** `backend/config.py:45`
-  defaults to `""` and only `warnings.warn`s. The app boots fine; every advisory
-  then fails with an auth error deep inside a pipeline run as an `agent.error`
-  event. Free key: <https://console.groq.com/keys>.
-- **Offline = 200 OK with empty advisories.** Every stage of `run_full_pipeline`
-  is wrapped in try/except and continues. Failures land quietly in `result.errors`.
-- **`HELIOOPS_CHROMA_PERSIST_PATH` and `HELIOOPS_ML_CHECKPOINT_DIR` are dead env
-  vars.** They're in `config.py`, `.env.example`, the README, and even the k8s
-  ConfigMap — but `genai/config.py:17`, `embeddings/config.py:2`, and
-  `ML_after_CV/inference.py:25` all hardcode their own paths. Setting them does nothing.
-- **`_prewarm_embedder()` (`genai/orchestrator.py:41-46`)** loads a BGE
-  sentence-transformers model on the first pipeline call. No internet + no HF
-  cache = hang or hard fail. The comment warns of a PyTorch "cannot copy out of
-  meta tensor" race if the prewarm is skipped.
-- **Rate limiter is process-local** (`backend/middleware.py:41,63`). With
-  `HELIOOPS_WORKERS>1` each worker has its own limit, defeating the 30s guarantee.
-- **`SupabaseResultRepository` makes synchronous `httpx.Client` calls** inside
-  async handlers — blocks the event loop on every pipeline completion.
+- **Windows console is cp1252.** `→` or `—` in argparse help or `print()` raises
+  `UnicodeEncodeError`. Logging survives (it substitutes); argparse does not. Keep CLI strings ASCII.
+- **`HELIOOPS_CHROMA_PERSIST_PATH` relative values resolve against the REPO ROOT.** They used to
+  resolve against `backend/`, turning the shipped `backend/data/chroma_db` into
+  `backend/backend/data/chroma_db` — a path Chroma happily *creates*. Every KB read 0,
+  `retrieve_chunks()` swallowed it, every advisory was ungrounded, nothing was logged. Pinned by
+  `test_runtime_paths.py`.
+- **Two `chromadb.PersistentClient` instances on one directory** produce
+  `Error executing plan: Internal error` under concurrent access. `genai/retriever.py` and
+  `embeddings/` share one via `collections.get_client()`.
+- **`genai` reads `GROQ_API_KEY` from `os.getenv`**, not `settings.GROQ_API_KEY`. Settings uses the
+  `HELIOOPS_` prefix, so that field is always empty and its "not set" warning is spurious.
+- **The advisory field is `sources_cited`, not `citations`.** Any RAG-liveness check grepping for
+  `citations` reports a false failure.
+- **`backend/ml/0*.py` must keep the numeric prefix** — `.dockerignore` excludes the training
+  scripts by that glob. Renaming them silently ships training code in the serving image.
+- **`python:3.12-slim` has no `curl`** — container healthchecks must use python or node.
+- **joblib shells out to `wmic`** to count physical cores; Windows 11 build 26xxx does not ship it,
+  so every ML run dumped a subprocess traceback. `backend/__init__.py` sets `LOKY_MAX_CPU_COUNT` to
+  logical//2 — it must be **strictly below** `os.cpu_count()` or loky still probes.
+- **`_pick_key()` in `genai/llm.py` waits in an unbounded `while True`.** Neither the per-call
+  timeout nor `GROQ_MAX_RETRIES` bounds it. With every key parked, `/api/detect` and `/ws/stream`
+  stall for minutes with no error and no client-side timeout either.
+- **Nothing under `backend/adapters/` may import `backend.pipeline` at module level** — it closes an
+  import loop and makes `import backend.pipeline` fail on its own, invisibly under the full suite.
+- **`check_rate_limit()` mutates on read** — it records the call. Anything read-only (preflight, a
+  status probe) must use `peek_rate_limit()` instead, or merely *looking* consumes the slot.
+- **`/health/ready` answers 503 with the same body shape as 200** when degraded. `getHealth()` in
+  the frontend parses unconditionally; routing it through the throwing `json()` helper made every
+  degraded state render as "unreachable" with no check pills.
+- **Preflight must stat before it parses.** The ingestion clients are cache-first-then-*network*
+  and mkdir on entry, so calling a parser to "just check" would fetch and write. Pinned by a
+  no-mkdir/no-fetch test.
 
 ---
 
 ## 7. Running it
 
-### Local (PowerShell)
+Everything runs from the repo root with `PYTHONPATH=.`.
 
-```powershell
-pip install -r requirements-backend.txt
-pip install -r requirements-genai.txt
-pip install -r requirements-data.txt
+```bash
+pip install -r backend/requirements-dev.txt    # requirements.txt alone = serving only
+cp .env.example .env                           # set GROQ_API_KEY
+PYTHONPATH=. uvicorn backend.app:app --reload  # API on :8000
 
-Copy-Item .env.example .env
-# then set GROQ_API_KEY in .env
-
-python -m backend.run       # http://localhost:8000  |  docs at /docs
+cd frontend && npm ci && npm run dev           # console on :3000, proxied to :8000
 ```
 
-Frontend:
-```powershell
-cd frontend
-npm ci --legacy-peer-deps
-npm run dev                 # http://localhost:3000
+Containers:
+
+```bash
+docker compose -f deployment/docker-compose.yml up --build
 ```
 
-Trigger a run:
-```powershell
-Invoke-RestMethod -Method Post http://localhost:8000/api/detect/2024-10-G4
+Tests and gates:
+
+```bash
+PYTHONPATH=. pytest backend/tests -q                      # 271 tests
+PYTHONPATH=. ruff check backend/ --ignore=E501,F403,E402
+PYTHONPATH=. python backend/ml/03_anchor_test.py          # exits non-zero on failure
+cd frontend && npm test
 ```
 
-CV standalone:
-```powershell
-python -m cv.detect --storm 2024-10-G4
-python -m cv.detect --live
+Offline pipelines — **not needed to serve**; their output is committed:
+
+```bash
+PYTHONPATH=. python -m backend.cv.data_ingestion.cache_fits --storm 2024-10-G4
+PYTHONPATH=. python -m backend.cv.data_ingestion.donki_client --prefetch --storm 2024-10-G4
+PYTHONPATH=. python -m backend.cv.image_threshold_algorithm.preprocessing --storm 2024-10-G4
+PYTHONPATH=. python -m backend.cv.storm_event_generator.detect --storm 2024-10-G4
+PYTHONPATH=. python -m backend.embeddings.ingest_aviation      # + grid / maritime / telecom / impact_matrix
+PYTHONPATH=. python backend/ml/01_data_generation_eda.py
+PYTHONPATH=. python backend/ml/02_train_and_tune.py
+PYTHONPATH=. python backend/ml/03_anchor_test.py
 ```
 
-### Docker
-
-```powershell
-docker compose up --build
-```
-backend `8000` (healthcheck `/health/live`), frontend `3000` (waits for backend
-healthy, `NEXT_PUBLIC_API_URL=http://backend:8000`). Volumes mount `./data` and
-`./ML_after_CV/checkpoints` into the backend.
-
-### Tests
-
-```powershell
-pytest tests/ -v            # 137 tests across 7 files
-npm --prefix frontend test  # 255 tests across 24 files
-```
-
-| File | tests | note |
-|---|---|---|
-| `tests/test_option_c.py` | 43 | CV detection/fusion/preprocessing/DONKI/flare/L1 |
-| `tests/test_security.py` | 23 | headers, rate limiter, storm-ID regex, CORS, WS origin |
-| `tests/test_cv_preprocessing.py` | 21 | |
-| `tests/test_api_endpoints.py` | 16 | |
-| `tests/test_pipeline.py` | 13 | ML inference, adapter, integration |
-| `tests/test_middleware.py` | 12 | |
-| `tests/test_retrieval.py` | 9 | ⚠ **requires a populated `data/chroma_db`** |
-
-`tests/conftest.py` provides session-scoped `g4_fixture()` from
-`tests/fixtures/march_2024_g4.json` and puts the project root on `sys.path`.
+> All five ingest CLIs default their cache paths to `BACKEND_DIR`, not the CWD. They used to default
+> to the CWD while `detect()` resolved from `backend.paths`, so the documented repo-root commands
+> wrote FITS/JSON where the detector never looked and detection degraded to the stub forever.
 
 ---
 
-## 8. Infra & CI — real code, never deployed
+## 8. CI and deployment
 
 ### CI (`.github/workflows/ci.yml`)
 
-Triggers on push/PR to `main`. Jobs: `lint-backend`, `test-backend`,
-`lint-frontend`, `build-frontend`, `docker-build`.
+Three jobs: `backend` (ruff + pytest), `frontend` (`npm ci`, `npm test`, `npm run build`), and
+`images` (Buildx over all three Dockerfiles, `push: false`).
 
-**Every lint and test step is wrapped in `|| true`** — they cannot fail the build.
-Only `npm run build` and the two Docker builds can actually fail CI. `test-backend`
-runs just `test_pipeline.py` + `test_option_c.py` (56 of 137 tests) with
-`GROQ_API_KEY: test-key`; the other 5 test files never run in CI.
-`CI_CD_REQUIREMENTS.txt` states this openly: *"CI is configured with `|| true` so
-it passes even without data, but tests will be shallow."*
+- **The `|| true` escape hatch is gone.** Both gates block now.
+- **No frontend lint/typecheck**, deliberately: no eslint config, no tsconfig, no typescript
+  dependency. The old job ran `npm run lint` and `npx tsc --noEmit`, carried over from the deleted
+  Next.js app, so it could only ever fail.
+- **`test_api_endpoints.py::test_valid_storm_id_returns_200_or_500_or_429` hits the real Groq API** —
+  the only live-network test in the suite. Free quota: ~45 s for the whole suite. Saturated keys or
+  CI's placeholder `GROQ_API_KEY`: 9–12 minutes.
 
-### k8s / Terraform / ArgoCD / chaos
+### The Kubernetes stack is gone
 
-All well-formed and plausible, but nothing indicates a real deployment:
+`k8s/`, `infra/` (Terraform, EKS), `argocd/`, `chaos/` (Chaos Mesh) and `runbooks/` were deleted on
+2026-08-21. A Kubernetes platform for two containers was the single largest cost item in the project
+and it contradicts the scale-to-zero target. Also dropped, same reasoning: `agentscope`,
+`langchain-core`, `langchain-groq`, `redis`, `fakeredis`.
 
-- `k8s/base/` — backend (2 replicas, readiness `/health/ready`, liveness
-  `/health/live`, `GROQ_API_KEY` from a `helioops-secrets` Secret, PVC for
-  checkpoints), frontend, service, ingress, configmap, servicemonitor, kustomization.
-  Overlays: `staging` (2 replicas, DEBUG/console) and `production` (3 replicas,
-  WARNING/json, RollingUpdate maxSurge 1 / maxUnavailable 0).
-  Ingress host is **`helioops.example.com`** — placeholder.
-- `infra/` — Terraform VPC + EKS modules, `us-east-1`, EKS 1.30, production node
-  group `m7i.xlarge` (min 3 / max 20 / desired 5). **No tfstate anywhere.**
-- `argocd/` — Application manifests pointing at
-  **`https://github.com/trh-ds/HelioOps`**, which is *not* the actual remote
-  (`Neal006/private-helioops`). They would sync against the wrong repo. Same stale
-  URL appears in `ARCHITECTURE_CHANGES.md` and the Dockerfiles.
-- `chaos/` — Chaos Mesh CRDs scoped to `namespace: staging` only: pod-kill (72h),
-  network-delay (200ms, weekly, 10 min), cpu-stress (2 workers @ 80%, biweekly, 5 min).
+### Deployment
 
-### Dependency hygiene
+| Target | Status |
+|---|---|
+| Frontend → Vercel | 🟢 live — `frontend-olive-six-50.vercel.app` |
+| Backend → Hugging Face Spaces | 🟡 build-ready (root `Dockerfile`, CPU basic, port 7860) |
 
-No exact pins anywhere. `requirements-data.txt` has **zero version constraints**
-on any of its 10 packages (`chromadb`, `openai`, `tiktoken`, `pypdf`, `pdfplumber`,
-`python-dotenv`, `sentence-transformers`, `redis`, `fakeredis`, `numpy`).
-`Dockerfile.backend` also copies `tests/` into the production image.
+**HF Spaces builds the repo-root `Dockerfile`.** `deployment/Dockerfile.backend` is never picked up
+there; the two are kept in step by hand. Two lines in that file are load-bearing and neither is
+style: `COPY --chown=user` (ChromaDB opens `chroma.sqlite3` read-write for the sqlite WAL) and
+baking the embedder **after** `USER user` (as root it caches to `/root/.cache`, which UID 1000
+cannot read, costing a silent ~90 s re-download on the first request).
 
 ### Supabase (optional)
 
-`HELIOOPS_RESULT_REPOSITORY=supabase` + `HELIOOPS_SUPABASE_URL` +
-`HELIOOPS_SUPABASE_ANON_KEY`. Apply `001_schema.sql` → `002_rls.sql` →
-`003_seed.sql`. 8 tables: `storm_events`, `impact_predictions`, `advisories`,
-`action_items`, `verified_advisories`, `verifier_checks`, `provenance_traces`,
-`pipeline_runs`, plus 4 enums, 9 indexes, and an `updated_at` trigger.
+`deployment/supabase/` holds `001_schema.sql` (4 enums, 8 tables, DB-level CHECK constraints),
+`002_rls.sql` and `003_seed.sql`. Set `HELIOOPS_RESULT_REPOSITORY=supabase` to use it.
 
 ---
 
-## 9. README vs. reality
+## 9. Docs vs. reality
 
-The README (537 lines) is unusually good, but these claims are stale:
-
-| README says | Code says |
+| Doc | Status |
 |---|---|
-| "64 tests" | **137** `def test_` functions across 7 files; `test_option_c.py` has 43, not 51 |
-| RAG retrieves "top 8 industry + top 4 impact_matrix" chunks | `genai/config.py:35-36`: `RAG_TOP_K=5`, `RAG_IMPACT_MATRIX_TOP_K=2` |
-| `HELIOOPS_CHROMA_PERSIST_PATH` / `HELIOOPS_ML_CHECKPOINT_DIR` configurable | Both dead — paths hardcoded in 3 modules |
-| "Swap repository without touching pipeline code" | True for GET endpoints; `pipeline.py` keeps a parallel always-in-memory store |
-| `backend/adapter.py` is *the* bridge | Two byte-identical implementations exist; the one in `adapters/schema_adapter.py` is dead |
-| "AgentScope over LangGraph" | Both stacked — `genai/agents/base.py:32-34` and `guardrails.py:24-25` import **`langchain_core` + `langchain_groq.ChatGroq`** alongside `agentscope.message`. Groq calls go through LangChain, not AgentScope |
-| LightGBM R²=0.9858 / 0.9577, PICP 96.4% / 94.7% | Real numbers, but **on synthetic data**, and no `.pkl` ships — production needs retraining on NASA OMNIWeb |
-| `PredictionPort` docstring: `FallbackPredictionAdapter` handles unavailability | Class is dead code; the real fallback is inside `inference.py` |
-| `DetectionPort` docstring: `LiveDetectionAdapter` | Does not exist |
-
-Also: `genai/contracts.py`'s `ImpactMetric` / `ImpactAssessment` are vestigial —
-nothing in the live pipeline imports them. Many modules reference a design doc
-`imp.md §7.2` that **is not in the repo**.
-
-`genai/orchestrator.py:165` drains its `asyncio.Queue` by polling every 50 ms
-(`await asyncio.sleep(0.05)`) rather than awaiting the queue — adds up to 50 ms
-per streamed event and busy-polls while agents run.
+| `README.md` | ✅ current (rewritten 2026-08-22) — keep the HF front matter block |
+| `AGENTS.md` | ✅ current — the authoritative project memory |
+| `docs/PRODUCT_BRIEF.md` | ✅ current |
+| `docs/TECHNICAL_DEEP_DIVE.md` | ✅ current |
+| `docs/CV_ML_QNA.md` | ✅ current — judge-facing CV+ML Q&A |
+| `docs/qna.md` | ✅ current — pitch Q&A |
+| `docs/DEPLOYMENT.md` · `docs/HOW_TO_DEPLOY_BACKEND.md` | ✅ current |
+| `REFACTOR_MAP.md` | 📌 **historical** — a record of the 2026-08-21 collapse, not a description of today |
+| `HELIOOPS_TEST_REPORT.md` | 📌 **historical** — a dated snapshot; its verdict and blocker list are resolved |
 
 ---
 
 ## 10. Domain reference (for reading the code)
 
-**Severity routing** (`genai/impact_router.py`, deterministic, zero LLM):
+| Term | Meaning |
+|---|---|
+| **CME** | Coronal mass ejection — a blob of magnetised plasma thrown off the Sun |
+| **Coronagraph** | Instrument that occults the solar disk so the faint corona is visible (CCOR-1, LASCO) |
+| **G / S / R scales** | NOAA severity scales: G = geomagnetic, S = solar radiation, R = radio blackout, each 1–5 |
+| **Kp index** | Planetary geomagnetic activity, 0–9. `G4 ≈ Kp 8.3`, `G5 ≈ Kp 9` |
+| **Bz** | North–south component of the interplanetary magnetic field. **Southward (negative) is what couples energy into the magnetosphere** |
+| **L1** | Lagrange point 1, ~1.5 M km sunward. DSCOVR sits there and buys 15–60 min of warning |
+| **DONKI** | NASA's human-reviewed database of CME analyses (speed, angular width, direction) |
+| **GOES XRS** | X-ray sensor that sets the flare class (C/M/X) and therefore the R scale |
+| **R☉** | Solar radius, 695,700 km — the standard length unit in coronagraph work |
+| **GIC** | Geomagnetically induced current — what heats grid transformers |
+| **GMDSS** | Global Maritime Distress and Safety System — the maritime rulebook |
+| **ICAO NAT Doc 007** | North Atlantic operations manual; source of the HF band set `{3, 5, 8, 11, 17}` MHz |
+| **NERC TPL-007-4** | The GMD planning standard for the North American grid |
+| **PICP** | Prediction Interval Coverage Probability — fraction of truths inside the interval |
+| **PINAW** | Prediction Interval Normalised Average Width — the *cost* of that coverage |
+| **Pinball loss** | The correct objective for quantile regression |
 
-| G | Aviation | Grid | Maritime | Telecom |
-|---|---|---|---|---|
-| G1 | LOW | LOW | NONE | NONE |
-| G2 | MEDIUM | MEDIUM | LOW | LOW |
-| G3 | HIGH | HIGH | MEDIUM | MEDIUM |
-| G4 | CRITICAL | CRITICAL | HIGH | HIGH |
-| G5 | CRITICAL | CRITICAL | CRITICAL | CRITICAL |
+**Measured ML calibration:** PICP **95.90%** GPS / **94.21%** HF against a nominal 95%, at PINAW
+0.0369 / 0.1941. R²/MAE are deliberately not quoted — the models are fit to synthetic rows generated
+from hand-written rules, so those metrics measure rule-recovery, not forecast skill.
 
-**Deterministic verifier rules** (`genai/verifier.py`, zero LLM):
-
-| Rule | Industry | Valid set | On violation |
-|---|---|---|---|
-| HF frequency | aviation, maritime | `{3,5,8,11,17}` MHz (ICAO NAT) | corrected to nearest |
-| Reroute latitude | aviation | G3→78°N, G4→70°N, G5→60°N | corrected to threshold |
-| GIC operating step | grid | NERC TPL-007-4 App. B keywords | blocked |
-| GMDSS channel | maritime | valid distress/working channels | blocked |
-
-Status values: `passed` / `passed_with_corrections` / `blocked`.
-
-**Safety flags:** `SEVERITY_MISMATCH`, `HALLUCINATION_DETECTED`, `LOW_COVERAGE`,
-`LOW_CONFIDENCE`, `CITATION_GAP`, `GENERATION_FAILED`.
-
-**RAG collections** (when built): `aviation_kb` 242 chunks (NAT Doc 007),
-`grid_kb` 101 (NERC TPL-007-4), `impact_matrix_kb` 166 (NOAA scales),
-`maritime_kb` 2 (IMO GMDSS 2019), `telecom_kb` **0 — intentionally empty**, so
-telecom advisories always carry `LOW_COVERAGE` by design.
-
-**ML features (9):** `g_scale`, `kp_index` (G→Kp map `{1:5,2:6,3:7,4:8.3,5:9}`),
-`bz_nt`, `wind_speed_km_s`, `cme_speed_km_s`, `cme_width_deg`, `r_scale`,
-`geomag_lat_bin` (hardcoded 1), `local_time_bin` (hardcoded 1).
-
-**Env vars:** `HELIOOPS_` prefix for backend, `GROQ_` for LLM. Full list in
-`.env.example`. Only `GROQ_API_KEY` is genuinely required.
+**Knowledge base:** 918 chunks — aviation 242, maritime 214, telecom 195, impact_matrix 166,
+grid 101. Embedded with BGE-small (384-dim, CPU).
 
 ---
 
 ## 11. If you're picking this up
 
-Highest-value cleanups, roughly in order:
-
-1. **Delete `backend/adapters/schema_adapter.py`** and its `app.py:56` import — a
-   dead duplicate of `backend/adapter.py` that will eventually cause a
-   fix-in-the-wrong-place bug.
-2. **Make `GROQ_API_KEY` fail fast** at startup instead of warning, or make the
-   degraded mode obvious in the API response.
-3. **Fix or delete the dead env vars** (`HELIOOPS_CHROMA_PERSIST_PATH`,
-   `HELIOOPS_ML_CHECKPOINT_DIR`) — they're documented in four places and wired to nothing.
-4. **Remove `|| true` from CI** and add the 5 unrun test files, or the test suite
-   is decoration.
-5. **Delete `frontend/src/app/dashboard/page.tsx`** (redirect to `/dashboard/storms`)
-   and drop `three`/`@react-three/*`/`lenis`.
-6. **Update the README's stale numbers** (test count, RAG top-k) — the rest of it
-   is genuinely accurate and worth keeping.
-7. Add `lightgbm` + `joblib` to a requirements file, or document that ML is
-   opt-in and the shipped default is the conservative fallback.
+1. **Read `AGENTS.md` first.** It is the project memory: conventions, gotchas and the decisions log
+   with the *reasoning*, not just the outcome.
+2. **Never hardcode a runtime path** — import it from `backend.paths`.
+3. **One Groq call site**: `backend.genai.llm.complete_json`. Do not add an LLM client.
+4. **CV imports use the full stage path**: `from backend.cv.storm_event_generator.detect import detect`.
+   There are no re-export shims; the stage package docstrings are the map.
+5. **Fallbacks log at WARNING and continue.** Only genuinely unrecoverable input raises. Every
+   external client is cache-first: hit → disk, miss → fetch + write, network failure → stale cache →
+   hardcoded fallback dict.
+6. **Known flake:** `test_retrieval.py` fails ~1 full-suite run in 3 with a chromadb segment-reader
+   `InternalError`. It passes standalone (11/11) and KB counts stay correct. Pre-existing chromadb
+   bug, mitigated by a retry in `collections.py`, not fixed. Do not go hunting for it in the CV or
+   RAG code — it is not there.

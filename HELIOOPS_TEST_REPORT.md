@@ -2,8 +2,31 @@
 **Date:** 2026-08-21 · **Scope:** unit, integration, user, domain-expert, security, build
 **Result:** 399 tests passing · 8 deployment blockers · 27 further findings
 
-> Placed outside the `HelioOps/` git repo on purpose — the repo's tracked `.md` files were
-> deliberately deleted and this should not reintroduce one.
+> ## 📌 HISTORICAL DOCUMENT — read the status note before acting on anything below
+>
+> This is a **dated snapshot of the repo as it stood on 2026-08-21**, before the refactor. It is
+> kept because the findings and the reasoning are worth reading, not because it describes the
+> current system. **Its verdict is void.** Do not treat any item here as an open action without
+> checking it against the code first.
+>
+> **What has changed since (as of 2026-08-22):**
+>
+> | Finding in this report | Status now |
+> |---|---|
+> | "Do not deploy yet — 8 blockers" | **Void.** The Kubernetes deployment path the blockers describe was deleted outright; the target is now HF Spaces + Vercel |
+> | `kubectl apply -k` fails | **N/A** — `k8s/`, `infra/`, `argocd/`, `chaos/` deleted 2026-08-21 |
+> | Every CI gate ends in `\|\| true` | **Fixed** — both gates block |
+> | RAG store empty (0 chunks in all 5 collections) | **Fixed** — 918 chunks committed (aviation 242, maritime 214, telecom 195, impact_matrix 166, grid 101) |
+> | `maritime_kb` at 2 chunks, `telecom_kb` at 0 | **Fixed** — 214 and 195 |
+> | 6 ML checkpoints absent from git | **Fixed** — committed, 527 KB |
+> | PICP claimed 96.40% / 94.77%, measured 95.92% / 94.23% | **The measured pair won.** Current: 95.90% / 94.21%, and that is what every doc now quotes |
+> | Browser bundle calls `localhost:8000` | **Fixed** — `VITE_API_URL`, empty default = relative paths |
+> | Frontend: 255 vitest tests over 24 files | **Gone with the Next.js app.** `npm test` now runs one node contract test |
+> | Backend: 144 tests | **271 tests** |
+> | "Placed outside the git repo on purpose" | No longer true — it is tracked |
+>
+> Current state lives in [`AGENTS.md`](AGENTS.md), [`context.md`](context.md) and
+> [`docs/TECHNICAL_DEEP_DIVE.md`](docs/TECHNICAL_DEEP_DIVE.md).
 
 ---
 

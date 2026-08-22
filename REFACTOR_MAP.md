@@ -1,15 +1,34 @@
-# REFACTOR_MAP.md — HelioOps → private-helioops
+# REFACTOR_MAP.md — the 2026-08-21 collapse
 
-Index of the collapse from the 18-folder `HelioOps` repo into the 3-folder
-`private-helioops` monolith (`backend/`, `deployment/`, `frontend/`).
+> ## 📌 HISTORICAL DOCUMENT — a change record, not a description of today
+>
+> This file maps **old paths to new** across the refactor that collapsed an 18-folder tree into
+> three folders. It is deliberately frozen at that moment: its value is telling you where something
+> *went*, which is exactly what a description of the current tree cannot do.
+>
+> Use it when a stale link, an old import, or an archived document points at a path that no longer
+> exists. For what the repo looks like **now**, read [`context.md`](context.md) §3 or
+> [`AGENTS.md`](AGENTS.md).
+>
+> **Two things have changed since this was written, and the mapping below does not reflect them:**
+> - `backend/ports/` was deleted (2026-08-21, later the same day) — the adapters are the seam.
+> - `backend/ml/` lost the real-data OMNI2 track (2026-08-22): `features.py`, `00_fetch_omni.py`,
+>   `01_omni_eda.py`, `04_hpo_pods.py`, `PIPELINE.md`, `POD_SETUP.md` and the OMNI corpus are gone.
+>   Four scripts and six checkpoints remain.
+>
+> The "target repo" below was a private working repo during the refactor; the result has since
+> landed in this repo on `main`.
 
-- **Source repo:** `C:\Users\Priyanshu\OneDrive\Desktop\All_projects\hackathon\HelioOps`
-- **Target repo:** `C:\Users\Priyanshu\OneDrive\Desktop\All_projects\hackathon\private-helioops`
+Index of the collapse from the 18-folder `HelioOps` repo into the 3-folder monolith
+(`backend/`, `deployment/`, `frontend/`).
+
+- **Source tree:** the pre-refactor `HelioOps` layout — `cv/`, `ML_after_CV/`, `genai/`,
+  `embeddings/`, `ml/`, `data/`, `tests/`, `k8s/`, `infra/`, `argocd/`, `chaos/`, `runbooks/`, …
 - **Refactor commits:** `4afbf84` (collapse + strip 5 deps), merged in `8af81c7`
 - **Verified:** 2026-08-21
 
-Companion docs: `AGENTS.md` (project memory), `context.md` (full narrative context),
-`qna.md` (pitch/Q&A). This file is the *mapping* layer they don't cover.
+Companion docs: `AGENTS.md` (project memory), `context.md` (current narrative context),
+`docs/qna.md` (pitch/Q&A). This file is the *mapping* layer they don't cover.
 
 ---
 

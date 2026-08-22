@@ -1,5 +1,5 @@
 # AGENTS.md — Project Memory (auto-maintained)
-Last updated: 2026-08-22 | Sessions logged: 4
+Last updated: 2026-08-22 | Sessions logged: 6
 
 ## Identity
 HelioOps — space-weather storm pipeline. Detects a CME from coronagraph imagery,
@@ -19,7 +19,7 @@ Python 3.12 + FastAPI backend, Vite/React 18 static frontend, ChromaDB RAG, Ligh
 Everything is run from the repo root with `PYTHONPATH=.`.
 ```
 pip install -r backend/requirements-dev.txt   # requirements.txt alone = serving only
-pytest backend/tests -q                       # 244 tests
+pytest backend/tests -q                       # 271 tests
 ruff check backend/ --ignore=E501,F403,E402
 uvicorn backend.app:app --reload              # API on :8000
 cd frontend && npm ci && npm run dev   # vite dev server; npm run build -> dist/
@@ -38,7 +38,7 @@ python backend/ml/03_anchor_test.py            # physics gate; exits non-zero on
 ```
 
 ## Current State & Focus
-- Works: all 4 layers end-to-end; 244 tests green; every REST + WS endpoint verified
+- Works: all 4 layers end-to-end; 271 tests green; every REST + WS endpoint verified
   against a live uvicorn; ruff clean.
 - 2026-08-21: repo collapsed to backend/ deployment/ frontend/. Dropped agentscope,
   langchain-core, langchain-groq, redis, fakeredis. All runtime paths resolve from
@@ -252,6 +252,7 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
 2026-08-22 — Free Space keeps its *.hf.space hostname — custom domains are Pro-only; the API URL lives in VITE_API_URL, so no user ever types it and a Cloudflare Worker proxy is unnecessary until api.heliops.dpdns.org is actually wanted.
 
 ## Changelog
+2026-08-22 | Rewrite the root README as the judge-facing entry point; bring every other .md into step with the code | README.md, context.md (full rewrite), docs/TECHNICAL_DEEP_DIVE.md, docs/PRODUCT_BRIEF.md, docs/qna.md, docs/CV_ML_QNA.md, docs/DEPLOYMENT.md, REFACTOR_MAP.md, HELIOOPS_TEST_REPORT.md | The docs described the pre-refactor repo: Next.js frontend, k8s/Terraform/ArgoCD/chaos, ML_after_CV/, an abstract ports/ layer, AgentScope over LangGraph, telecom_kb=0, PICP 96.4/94.8, 8-15s latency, CI ending in `|| true`. A judge reading those against this tree finds a repo that overstates itself, which costs more credibility than any single gap. REFACTOR_MAP.md and HELIOOPS_TEST_REPORT.md were marked HISTORICAL rather than rewritten - a change record and a dated snapshot lose their whole value if edited to match today
 2026-08-22 | Pre-flight conflict check + progressive-disclosure run gate | backend/{preflight,middleware,app}.py, backend/tests/{test_preflight,test_api_endpoints}.py, frontend/src/{api.js,Dashboard.jsx,dashboard.css} | Preflight is stat-first read-only (clients fetch+mkdir on miss); conflicts computed with the same parsers the run uses; UI warns but never hard-blocks
 2026-08-22 | Delete the real-data ML track and HPO pods; make the synthetic pipeline actually runnable; scrub the docs | backend/ml/** (7 deletions), backend/paths.py, backend/__init__.py, backend/tests/test_runtime_paths.py, .gitignore, .dockerignore, README.md, docs/CV_ML_QNA.md, docs/HOW_TO_DEPLOY_BACKEND.md | One ML pipeline in the tree, not two — the deleted one could never be trained, and its presence made the repo overstate itself
 2026-08-22 | Fix silent RAG death (chroma path), lock synthetic ML as the serving layer, make backend HF-deployable | backend/embeddings/config.py, backend/health.py, backend/ml/inference.py, backend/config.py, backend/tests/test_runtime_paths.py, Dockerfile, README.md, .dockerignore, docs/HOW_TO_DEPLOY_BACKEND.md | Readiness must assert the KB holds chunks, not that genai imports — an import probe cannot see an empty DB, which is the exact failure that shipped
@@ -269,5 +270,4 @@ HPO pods with a two-laptop runbook. Never trainable — OMNI supplies every driv
 Deleted 2026-08-22; recoverable from git history if IONEX/GOES label builders ever land.
 2026-08-22 — CI's frontend job ran `npm run lint` and `npx tsc --noEmit`, neither of which exists in this repo (no eslint config, no tsconfig, no typescript dep) — both carried over from the deleted Next.js app, so the job could only ever fail. Replaced with `npm test`; added the root Dockerfile to the image matrix so the image HF Spaces actually builds is no longer the only untested one.
 
-## Changelog
 2026-08-22 | full-project verification sweep | backend/__init__.py, backend/cv/data_ingestion/{cache_fits,donki_client,flare_classifier,l1_client}.py, backend/cv/image_threshold_algorithm/preprocessing.py, frontend/src/api.js, .github/workflows/ci.yml | ingest CLIs resolve caches from BACKEND_DIR not cwd; frontend gets a VITE_API_URL base so a split Vercel/Spaces deploy can reach the API; CI frontend job made runnable; deleted the pre-refactor leftovers (root cv/ embeddings/ genai/ ML_after_CV/ tests/ data/, frontend/.next, .env.local, tsbuildinfo)

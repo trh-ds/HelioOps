@@ -51,7 +51,7 @@ Solar imagery (CCOR-1 / LASCO)
    ④  DETERMINISTIC VERIFIER  zero-LLM rule engine — ICAO HF bands, reroute latitudes,
         │                     NERC GIC steps, GMDSS channels. Corrects, does not just flag.
         ▼
-   ⑤  DELIVERY              FastAPI REST + WebSocket → Next.js operations dashboard
+   ⑤  DELIVERY              FastAPI REST + WebSocket → React operations console
                             → Supabase Postgres for persistence and audit
 ```
 
@@ -88,12 +88,18 @@ regressor to guess numbers that a NASA API already publishes and that a regulato
 
 The impact models are quantile regressors, not point estimators. Every prediction ships as
 `{median, 2.5th percentile, 97.5th percentile}`. An operator is told "GPS error 12.8 m, 95% CI
-6.6–13.3 m", not a bare number with invisible error bars. Measured interval coverage is 96.4% (GPS)
-and 94.8% (HF) against a 95% target — the intervals mean what they claim to mean.
+6.8–13.7 m", not a bare number with invisible error bars. Measured interval coverage is 95.9% (GPS)
+and 94.2% (HF) against a 95% target, at a normalised interval width of 0.037 and 0.194 — the
+intervals mean what they claim to mean, and they are narrow enough to be worth acting on.
 
 ## 4. How it helps
 
-**For the operator.** One screen, four industries, live. Open the dashboard, trigger a storm, and
+**For the operator.** One screen, four industries, live. Before a run starts, a **pre-flight
+check** says what it is about to do: which data sources are cached and which will fall back to a
+stub, whether the cached sources physically contradict each other, and whether the token budget
+will stall the run. It warns and offers *Run anyway*; it never hard-blocks. A 65-80 second run
+that silently replayed a stub returns a response shaped exactly like a real one, which is the
+whole reason that check exists. Open the dashboard, trigger a storm, and
 watch detection → prediction → four agents reasoning in parallel → verifier checks land in real time
 over WebSocket. Each advisory is a numbered action list with a time window and a cited source
 document, not a paragraph of prose to interpret under pressure.
@@ -103,9 +109,14 @@ step 3? What did the model originally propose before correction? What was the re
 What confidence score, and which safety flags fired? All of it is stored, all of it is renderable.
 
 **For the engineering team.** The system is built to be operated, not just demoed: structured JSON
-logs, Prometheus metrics, three-tier health checks, Kubernetes manifests with real probes, Terraform
-for the cluster, GitOps for deploys, chaos experiments in staging, and four incident runbooks. ~137
-Python tests and ~255 frontend tests run in CI.
+logs keyed by `storm_id`, Prometheus metrics, three-tier health checks whose readiness probe asserts
+the knowledge base actually holds chunks, one stateless container, and blocking CI. **271 Python
+tests** run on every push.
+
+The Kubernetes / Terraform / ArgoCD / Chaos Mesh platform stack that used to sit here was deleted on
+2026-08-21: an EKS cluster for two containers was the single largest cost item in the project and it
+contradicts the scale-to-zero target. Keeping manifests nobody applies is worse than not having
+them — they make a repo claim operational maturity it never exercised.
 
 **Failure is designed in, not discovered.** Every layer degrades instead of collapsing. No cached
 imagery → fall back to stub storm events. DONKI unreachable → cached physics. ML checkpoints missing
@@ -137,29 +148,40 @@ Three things are genuinely hard to copy:
    when to distrust it.
 
 **Cost profile:** runs entirely on CPU. No GPU for detection (threshold algorithm), none for impact
-(LightGBM, checkpoints < 500 KB), none for embeddings (BGE-small, 384-dim). The only external paid
-dependency is the LLM, and the self-check step deliberately uses a lighter 8B model to stay inside
-free-tier rate limits.
+(LightGBM, all six checkpoints total 764 KB), none for embeddings (BGE-small, 384-dim). The only
+external paid dependency is the LLM: advisories use `openai/gpt-oss-120b`, and the self-check step
+deliberately uses the lighter `openai/gpt-oss-20b` — a different model is a different TPM bucket, so
+the guard costs nothing against the generation budget and stays inside free-tier rate limits.
 
 ## 6. Current maturity — stated plainly
 
 Production-shaped, not yet production-proven. What is real and what is not:
 
 **Real:** the detection algorithm, the DONKI/GOES/DSCOVR integrations, the trained models and their
-metrics, the agent pipeline, the verifier, the API, the dashboard, the database schema, and the full
-DevOps chain (Docker → CI → Kubernetes → Terraform → ArgoCD → chaos → runbooks).
+calibration metrics, the four-agent pipeline, the verifier, the API, the console, the database
+schema, 271 passing tests, and the deployment chain that is actually used
+(Docker → blocking CI → Hugging Face Spaces + Vercel).
 
 **Caveats worth knowing before deploying:**
 
-- **Impact models are trained on synthetic storm data.** The reported R² of 0.986 measures how well
-  the model learned the physical proxy rules it was generated from — not real-world accuracy. Moving
-  to NASA OMNIWeb historical data is the known next step.
+- **Impact models are trained on synthetic storm data** — 4,800 rows, 120 storms × 40 frames, seed 42,
+  committed. R² measures how well the model recovered the hand-written physics rules it was generated
+  from, not forecast skill, and this brief no longer quotes it as a headline number. The real-data
+  track *was* built against NASA OMNI2 (1996–2025) and **deleted on 2026-08-22**: OMNI supplies every
+  driver and no label, and the labels needed (IONEX TEC, GOES XRS+SEP) are not published in the
+  required form. It was blocked, not deferred. What is measured and not circular: interval
+  calibration (95.9% / 94.2% PICP) and the physical ordering gate in `03_anchor_test.py`.
 - **Two demo storms** (`2024-10-G4`, `2024-05-G5`) are wired for replay; live mode exists but the
   cached path is what the demo runs.
-- **`telecom_kb` is intentionally empty**, so the telecom agent honestly emits a `LOW_COVERAGE`
-  advisory — a deliberate demonstration that the system reports thin evidence instead of inventing it.
-- **CI gates are advisory, not blocking** (steps end in `|| true`), and the Docker build stage builds
-  without pushing. Full CD is scaffolded, not switched on.
+- **The knowledge base is now fully ingested** — 918 chunks across five collections (aviation 242,
+  maritime 214, telecom 195, impact_matrix 166, grid 101). An earlier revision shipped with
+  `telecom_kb` empty and described that as a deliberate `LOW_COVERAGE` demonstration; that is no
+  longer the case, and the flag now fires only when retrieval is genuinely thin.
+- **CI gates block now** — the `|| true` escape hatch is gone from every step, and all three
+  Dockerfiles build in the image matrix. What is still missing is CD: `push: false`, so images never
+  reach a registry.
+- **`/api/detect` takes 65–80 s end to end**, dominated by the `gpt-oss-120b` reasoning pass. Host
+  CPU is nearly irrelevant; a pooled Groq key set is the only real lever.
 - **Rate limiting and metrics are per-process**, so they are correct on a single replica and need a
   shared store (Redis) before horizontal scaling means anything.
 
