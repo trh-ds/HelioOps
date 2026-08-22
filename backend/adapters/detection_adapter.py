@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from backend.logging import get_logger
+from backend.logging_config import get_logger
 
 log = get_logger("backend.adapters.detection")
 
