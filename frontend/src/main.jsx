@@ -69,7 +69,9 @@ function App() {
   const Page = PAGES[shown] ?? Home
   return (
     <div className={booting ? 'app is-booting' : 'app'}>
-      <SiteNav />
+      {/* The console carries its own rail and its own way back to the site;
+          the floating marketing bar would sit on top of the panel header. */}
+      {shown !== '/dashboard' && <SiteNav />}
       <div className={leaving ? 'page-swap is-leaving' : 'page-swap'} key={shown}>
         <Page />
       </div>

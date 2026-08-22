@@ -86,3 +86,60 @@ console.log('ok — preflight gate decision')
 
   console.log('ok — citationUrl')
 }
+
+/* ---------- console panels: provenance chain + interval bars ---------- */
+{
+  const { chainSteps, intervalGeometry, elapsed, PROVENANCE_STEPS } = await import('./console.js')
+
+  // A complete trace is 6 of 6, in canonical order regardless of arrival order.
+  const full = chainSteps({
+    chain: [...PROVENANCE_STEPS].reverse().map(step => ({ step, ref: `${step}-ref` }))
+  })
+  assert.equal(full.present, 6)
+  assert.equal(full.total, 6)
+  assert.deepEqual(full.steps.map(s => s.step), PROVENANCE_STEPS, 'canonical order, not arrival order')
+
+  // A gap is rendered as a gap. Silently dropping it makes 5 steps look like 6.
+  const gapped = chainSteps({ chain: [{ step: 'detection', ref: 'd' }, { step: 'output', ref: 'o' }] })
+  assert.equal(gapped.present, 2)
+  assert.equal(gapped.steps.length, 6, 'missing steps still occupy their slot')
+  assert.equal(gapped.steps.find(s => s.step === 'raw_data').present, false)
+
+  // Nothing usable must not throw — the panel has an empty state for this.
+  assert.equal(chainSteps(null).present, 0)
+  assert.equal(chainSteps({}).steps.length, 6)
+
+  // A 7th step must be visible the day it ships, not silently discarded.
+  const extra = chainSteps({ chain: [{ step: 'notification', ref: 'n' }] })
+  assert.equal(extra.steps.length, 7)
+  assert.equal(extra.present, 0, 'an extra step is not a canonical step')
+
+  // Interval geometry: median sits inside the band, band sits inside the domain.
+  const g = intervalGeometry(6.8, 12.8, 13.7)
+  assert.ok(g.leftPct > 0 && g.leftPct + g.widthPct < 100, 'padded domain, bar never touches the edge')
+  assert.ok(g.medPct > g.leftPct && g.medPct < g.leftPct + g.widthPct, 'median inside the band')
+
+  // Quantile crossing must not invert the bar.
+  const crossed = intervalGeometry(13.7, 12.8, 6.8)
+  assert.deepEqual([crossed.lo, crossed.med, crossed.hi], [6.8, 12.8, 13.7], 'sorted, not trusted')
+  assert.ok(crossed.widthPct > 0)
+
+  // A fixed domain (probability) is honoured rather than padded past its bounds.
+  const prob = intervalGeometry(0, 0.5, 1, { min: 0, max: 1 })
+  assert.equal(prob.leftPct, 0)
+  assert.equal(prob.widthPct, 100)
+  assert.equal(prob.medPct, 50)
+
+  // Degenerate and unusable inputs.
+  assert.ok(intervalGeometry(5, 5, 5).widthPct === 0, 'zero span still has a domain')
+  assert.equal(intervalGeometry(1, 2, null), null, 'no bar without three numbers')
+  assert.equal(intervalGeometry(1, 2, 'x'), null)
+
+  // Stream clock.
+  assert.equal(elapsed(1000, 1000), '0:00')
+  assert.equal(elapsed(0, 72_000), '1:12')
+  assert.equal(elapsed(5000, 1000), '0:00', 'never renders a negative clock')
+  assert.equal(elapsed(null, 1000), '')
+
+  console.log('ok — console panels')
+}

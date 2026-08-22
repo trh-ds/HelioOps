@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AskBox from './AskBox.jsx'
-import PageShell from './PageShell.jsx'
 import {
   citationUrl,
   getHealth,
@@ -10,16 +9,27 @@ import {
   runPipeline,
   streamPipeline,
 } from './api.js'
+import { elapsed } from './console.js'
+import {
+  DetectionPanel,
+  Empty,
+  ImpactPanel,
+  Pill,
+  ProvenancePanel,
+  SourcesPanel,
+  VerifierPanel,
+} from './panels.jsx'
 // toneOf is already taken below by the stream-event colouring.
 import { SEVERITIES, gateDecision, toneOf as severityTone } from './preflight.js'
+import { Link } from './router.jsx'
 import './dashboard.css'
 
-/* The operator-facing surface for the advisory layer.
+/* The operator-facing surface for the whole pipeline.
 
-   Deliberately plain: this exists to make the pipeline observable — what the
-   agents retrieved, what they wrote, which guardrail fired, and what the
-   deterministic verifier changed before dispatch. Styling is meant to be
-   replaced; the data contract is the part worth keeping. */
+   One panel per layer, selected from the rail on the left, because the pipeline
+   has five stages and a single scrolling page made three of them invisible.
+   Every panel renders fields the backend already returns; the data contract is
+   the part worth keeping. */
 
 const SEVERITY_ORDER = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, NONE: 0 }
 
@@ -40,15 +50,9 @@ const VERIFIER_TONE = {
   not_applicable: 'info'
 }
 
-const pct = n => `${Math.round((n ?? 0) * 100)}%`
+const INDUSTRIES = ['aviation', 'grid', 'maritime', 'telecom']
 
-function Pill({ tone = 'info', children, title }) {
-  return (
-    <span className={`pill pill-${tone}`} title={title}>
-      {children}
-    </span>
-  )
-}
+const pct = n => `${Math.round((n ?? 0) * 100)}%`
 
 function ConfidenceBar({ value }) {
   const tone = value >= 0.75 ? 'ok' : value >= 0.5 ? 'warn' : 'bad'
@@ -90,25 +94,36 @@ function toneOf(e) {
   return 'plain'
 }
 
-function StreamLog({ events }) {
+function StreamLog({ events, startedAt }) {
   const endRef = useRef(null)
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' })
   }, [events.length])
 
   if (!events.length) {
-    return <div className="muted small">No run yet. Press “Run live” to watch the agents work.</div>
+    return (
+      <Empty>
+        No run yet. Start one from RUN CONTROL and every stage reports here as it
+        happens — retrieval, generation, and each deterministic check the verifier
+        makes, in the order they occur.
+      </Empty>
+    )
   }
 
   return (
-    <div className="streamlog">
-      {events.map((e, i) => (
+    /* Screen readers get the run narrated rather than 80 seconds of silence. */
+    <div className="streamlog" role="log" aria-live="polite" aria-label="pipeline events">
+      {events.map((e, i) => {
+        const tag = e.industry ?? e.stage ?? e.event.split('.')[0]
+        return (
         <div key={i} className={`streamline tone-${toneOf(e)}`}>
-          <span className="streamline-tag">{e.industry ?? e.stage ?? e.event.split('.')[0]}</span>
+          <span className="streamline-clock">{elapsed(startedAt, e._at)}</span>
+          <span className="streamline-tag" title={tag}>{tag}</span>
           <span className="streamline-step">{e.step ?? e.event}</span>
           <span className="streamline-msg">{describe(e)}</span>
         </div>
-      ))}
+        )
+      })}
       <div ref={endRef} />
     </div>
   )
@@ -155,7 +170,21 @@ function AdvisoryCard({ advisory, verified }) {
 
   return (
     <section className="adv">
-      <header className="adv-head" onClick={() => setOpen(o => !o)}>
+      {/* A collapse the keyboard can reach. It was a bare <header onClick>, so
+          the cards could only be folded with a mouse. */}
+      <header
+        className="adv-head"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setOpen(o => !o)
+          }
+        }}
+      >
         <div className="adv-title">
           <span className="adv-industry">{advisory.industry}</span>
           <Pill tone={SEVERITY_ORDER[advisory.severity] >= 4 ? 'bad' : 'warn'}>
@@ -326,29 +355,135 @@ function PreflightPanel({ gate, onConfirm, onCancel }) {
   )
 }
 
+/* ---------- Run control ---------- */
+
+/* The `completed` map arrives in the same /api/storms response the selector
+   already parses, and used to be thrown away — so a storm with results looked
+   identical to one that had never run. */
+function StormRow({ id, meta, selected, disabled, onSelect }) {
+  return (
+    <button
+      className={`storm-row${selected ? ' is-selected' : ''}`}
+      onClick={() => onSelect(id)}
+      disabled={disabled}
+      aria-pressed={selected}
+    >
+      <span className="storm-id">{id}</span>
+      {meta ? (
+        <span className="storm-meta small muted">
+          {meta.advisory_count} advisories · {meta.verified_count} verified
+          {meta.error_count > 0 && <span className="storm-err"> · {meta.error_count} errors</span>}
+          <br />
+          {String(meta.completed_at).replace('T', ' ').slice(0, 19)} UTC
+        </span>
+      ) : (
+        <span className="storm-meta small muted">no run this session</span>
+      )}
+    </button>
+  )
+}
+
+function RunPanel({
+  storms, completed, stormId, setStormId, busy, gate,
+  onRun, onCancelRun, onConfirmGate, onCancelGate, result,
+}) {
+  return (
+    <>
+      <div className="panel-lede">
+        Two anchor storms replay deterministically. A run is a 65–80&nbsp;s
+        commitment — the reasoning pass dominates — so every run passes a
+        pre-flight check first, and the check never blocks the run.
+      </div>
+
+      <div className="col-head">STORM</div>
+      <div className="storm-list">
+        {storms.length === 0 && <Empty>Backend unreachable — no storms available.</Empty>}
+        {storms.map(s => (
+          <StormRow
+            key={s}
+            id={s}
+            meta={completed?.[s]}
+            selected={s === stormId}
+            disabled={busy || gate != null}
+            onSelect={setStormId}
+          />
+        ))}
+      </div>
+
+      <div className="run-actions">
+        <button className="btn btn-primary" onClick={() => onRun('live')} disabled={busy || !stormId || gate != null}>
+          {busy ? 'Running…' : 'Run live (WebSocket)'}
+        </button>
+        <button className="btn" onClick={() => onRun('batch')} disabled={busy || !stormId || gate != null}>
+          Run batch (REST)
+        </button>
+        {/* The whole pre-flight feature exists because 80s is expensive to
+            commit to. Not being able to stop it once started was the same
+            problem one step later. */}
+        {busy && (
+          <button className="btn btn-stop" onClick={onCancelRun}>
+            Stop run
+          </button>
+        )}
+      </div>
+
+      {gate && (
+        <PreflightPanel gate={gate} onConfirm={onConfirmGate} onCancel={onCancelGate} />
+      )}
+
+      {result?.completed_at && (
+        <div className="small muted run-stamp">
+          Showing the result produced {String(result.completed_at).replace('T', ' ').slice(0, 19)} UTC.
+        </div>
+      )}
+    </>
+  )
+}
+
 /* ---------- Page ---------- */
 
 export default function Dashboard() {
   const [storms, setStorms] = useState([])
+  const [completed, setCompleted] = useState({})
   const [stormId, setStormId] = useState('')
   const [health, setHealth] = useState(null)
   const [events, setEvents] = useState([])
+  const [startedAt, setStartedAt] = useState(null)
   const [result, setResult] = useState(null)
+  // Partial layer output hydrated from the stream while a run is still going.
+  const [live, setLive] = useState({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [panel, setPanel] = useState('run')
+  const [askIndustry, setAskIndustry] = useState('aviation')
   // Pre-flight gate: null | {phase:'loading'|'confirm', runner:'live'|'batch', data?}
   const [gate, setGate] = useState(null)
   const closeRef = useRef(null)
 
+  const loadStorms = useCallback(
+    () =>
+      getStorms()
+        .then(d => {
+          setStorms(d.available_storms ?? [])
+          setCompleted(d.completed ?? {})
+          setStormId(prev => prev || d.available_storms?.[0] || '')
+        })
+        .catch(e => setError(String(e.message ?? e))),
+    []
+  )
+
+  // Health once on mount, then on a timer: a backend that degrades mid-demo
+  // used to keep showing green pills for the rest of the session.
   useEffect(() => {
-    getHealth().then(setHealth).catch(() => setHealth({ status: 'unreachable' }))
-    getStorms()
-      .then(d => {
-        setStorms(d.available_storms ?? [])
-        setStormId(prev => prev || d.available_storms?.[0] || '')
-      })
-      .catch(e => setError(String(e.message ?? e)))
+    const poll = () => getHealth().then(setHealth).catch(() => setHealth({ status: 'unreachable' }))
+    poll()
+    const t = setInterval(poll, 15_000)
+    return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    loadStorms()
+  }, [loadStorms])
 
   // Whenever the selected storm changes, show any result already on the server.
   useEffect(() => {
@@ -367,24 +502,38 @@ export default function Dashboard() {
     setError(null)
     setEvents([])
     setResult(null)
+    setLive({})
+    setStartedAt(Date.now())
+    setPanel('stream')
     closeRef.current?.()
     closeRef.current = streamPipeline(stormId, {
+      // Stamped on arrival: the backend does not clock its own events, and when
+      // the UI saw them is the honest answer to "where did the 80 seconds go".
       onEvent: e => {
-        setEvents(prev => [...prev, e])
+        setEvents(prev => [...prev, { ...e, _at: Date.now() }])
         if (e.event === 'error') setError(e.message)
+        // Layers 1 and 2 finish in the first couple of seconds; without this
+        // their panels sit empty for the remaining ~70s of a run that has
+        // already computed them. The detection event carries scales and
+        // confidence only — the full StormEvent arrives with the result.
+        if (e.event === 'pipeline.stage' && e.status === 'completed' && e.data) {
+          if (e.stage === 'detection') setLive(l => ({ ...l, cv_event: e.data }))
+          if (e.stage === 'impact_prediction') setLive(l => ({ ...l, impact_prediction: e.data }))
+        }
       },
       onClose: () => {
         setBusy(false)
         // The stream carries advisories, but the persisted result also has the
         // verifier output and provenance, which only exist after the run.
         getResult(stormId).then(setResult).catch(() => {})
+        loadStorms()
       },
       onError: e => {
         setError(String(e.message ?? e))
         setBusy(false)
       }
     })
-  }, [stormId, busy])
+  }, [stormId, busy, loadStorms])
 
   const startBatch = useCallback(async () => {
     if (!stormId || busy) return
@@ -393,17 +542,26 @@ export default function Dashboard() {
     setEvents([])
     try {
       setResult(await runPipeline(stormId))
+      setPanel('advisories')
+      loadStorms()
     } catch (e) {
       setError(String(e.message ?? e))
     } finally {
       setBusy(false)
     }
-  }, [stormId, busy])
+  }, [stormId, busy, loadStorms])
 
   const startRunner = useCallback(
     runner => (runner === 'live' ? startLive() : startBatch()),
     [startLive, startBatch]
   )
+
+  // Closing the socket ends the run from the UI's side. The backend finishes
+  // its own work; this stops us waiting on it.
+  const cancelRun = useCallback(() => {
+    closeRef.current?.()
+    setBusy(false)
+  }, [])
 
   // Every run goes through the gate: preflight first, confirm, then start.
   // If preflight itself fails, start directly — the gate never breaks the demo.
@@ -436,112 +594,204 @@ export default function Dashboard() {
   }, [gate, startRunner])
 
   const advisories = result?.advisories ?? []
-  const verifiedById = Object.fromEntries(
-    (result?.verified_advisories ?? []).map(v => [v.industry, v])
+  const verified = result?.verified_advisories ?? []
+  const traces = result?.provenance_traces ?? []
+  // The finished result always wins; `live` only fills the gap during a run.
+  const cvEvent = result?.cv_event ?? live.cv_event
+  const impact = result?.impact_prediction ?? live.impact_prediction
+
+  /* Joined on industry, and named for it.
+
+     Not a shortcut — the two sides use different id spaces. advisories[] carries
+     a bare UUID; verified_advisories[] and provenance_traces[] carry
+     "adv_{storm}_{industry}_{hash}". They never compare equal, so industry is
+     the only key that actually joins them. It holds because the pipeline emits
+     one advisory per industry; if that ever changes, this join needs a real
+     shared id on both sides rather than a different local fix. */
+  const verifiedByIndustry = useMemo(
+    () => Object.fromEntries(verified.map(v => [v.industry, v])),
+    [verified]
   )
 
+  const corrections = useMemo(
+    () => verified.reduce((n, v) => n + (v.verifier?.checks ?? []).filter(c => c.status === 'blocked').length, 0),
+    [verified]
+  )
+
+  const healthOk = health?.status === 'ready'
+
+  const NAV = [
+    { key: 'run', label: 'Run control', layer: '—' },
+    { key: 'detection', label: 'Detection', layer: 'L1', badge: cvEvent?.scales?.G ? `G${cvEvent.scales.G}` : null },
+    { key: 'impact', label: 'Impact (ML)', layer: 'L2', badge: impact ? '±' : null },
+    { key: 'stream', label: 'Pipeline stream', layer: '—', badge: events.length || null },
+    { key: 'advisories', label: 'Advisories', layer: 'L3', badge: advisories.length || null },
+    { key: 'verifier', label: 'Verifier', layer: 'L4', badge: corrections || null, tone: corrections ? 'warn' : null },
+    { key: 'provenance', label: 'Provenance', layer: 'L5', badge: traces.length || null },
+    { key: 'sources', label: 'Knowledge base', layer: 'RAG' },
+    { key: 'ask', label: 'Ask an agent', layer: 'RAG' },
+    { key: 'health', label: 'System health', layer: '—', tone: healthOk ? null : 'bad' },
+  ]
+
+  const TITLE = {
+    run: 'RUN CONTROL',
+    detection: 'LAYER 1 · CV DETECTION',
+    impact: 'LAYER 2 · ML IMPACT PREDICTION',
+    stream: 'PIPELINE STREAM',
+    advisories: 'LAYER 3 · AGENTIC ADVISORIES',
+    verifier: 'LAYER 4 · DETERMINISTIC VERIFIER',
+    provenance: 'PROVENANCE TRACE',
+    sources: 'KNOWLEDGE BASE',
+    ask: 'ASK AN AGENT',
+    health: 'SYSTEM HEALTH',
+  }
+
   return (
-    <PageShell industry="grid" gscale={5} glow="rgba(120,160,255,.10)">
-      <div className="dash">
-        <header className="dash-head">
-          <h1>ADVISORY CONSOLE</h1>
-          <div className="dash-sub muted">
-            Layer 3 · four industry agents, RAG-grounded, deterministically verified
+    <div className="console">
+      <aside className="console-nav" aria-label="console sections">
+        <div className="console-brand">
+          <Link to="/">HELIOOPS</Link>
+          <div className="console-brand-sub muted">ADVISORY CONSOLE</div>
+        </div>
+
+        <nav className="nav-list">
+          {NAV.map(item => (
+            <button
+              key={item.key}
+              className={`nav-item${panel === item.key ? ' is-active' : ''}`}
+              onClick={() => setPanel(item.key)}
+              aria-current={panel === item.key ? 'page' : undefined}
+            >
+              <span className="nav-layer">{item.layer}</span>
+              <span className="nav-label">{item.label}</span>
+              {item.badge != null && (
+                <span className={`nav-badge${item.tone ? ` is-${item.tone}` : ''}`}>{item.badge}</span>
+              )}
+              {item.tone === 'bad' && item.badge == null && <span className="nav-dot is-bad" />}
+            </button>
+          ))}
+        </nav>
+
+        <div className="console-foot">
+          <div className="storm-active">
+            <span className="col-head">ACTIVE STORM</span>
+            <div className="storm-active-id">{stormId || '—'}</div>
+          </div>
+          <div className="console-status">
+            <span className={`nav-dot is-${healthOk ? 'ok' : 'bad'}`} />
+            <span className="small muted">api {health?.status ?? '…'}</span>
+          </div>
+          {busy && <div className="small running-note">run in progress · {events.length} events</div>}
+        </div>
+      </aside>
+
+      <main className="console-main">
+        <header className="panel-head">
+          <h1>{TITLE[panel]}</h1>
+          <div className="panel-head-meta">
+            {/* Reachable from every panel, not just the one you started from —
+                a run auto-opens the stream, and that is exactly where you are
+                standing when you decide 80 seconds was a mistake. */}
+            {busy && (
+              <>
+                <Pill tone="warn">running</Pill>
+                <button className="btn btn-stop btn-small" onClick={cancelRun}>
+                  Stop
+                </button>
+              </>
+            )}
+            {stormId && <span className="small muted">{stormId}</span>}
           </div>
         </header>
 
-        <div className="dash-controls">
-          <label className="ctl">
-            <span className="col-head">STORM</span>
-            <select
-              value={stormId}
-              onChange={e => setStormId(e.target.value)}
-              disabled={busy || gate != null}
-            >
-              {storms.length === 0 && <option value="">(backend unreachable)</option>}
-              {storms.map(s => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
+        {error && <div className="banner banner-bad">{error}</div>}
+        {result?.errors?.length > 0 && panel !== 'run' && (
+          <div className="banner banner-warn">pipeline notes: {result.errors.join(' · ')}</div>
+        )}
 
-          <button
-            className="btn btn-primary"
-            onClick={() => requestRun('live')}
-            disabled={busy || !stormId || gate != null}
-          >
-            {busy ? 'Running…' : 'Run live (WebSocket)'}
-          </button>
-          <button
-            className="btn"
-            onClick={() => requestRun('batch')}
-            disabled={busy || !stormId || gate != null}
-          >
-            Run batch (REST)
-          </button>
+        <div className="panel-body">
+          {panel === 'run' && (
+            <RunPanel
+              storms={storms}
+              completed={completed}
+              stormId={stormId}
+              setStormId={setStormId}
+              busy={busy}
+              gate={gate}
+              result={result}
+              onRun={requestRun}
+              onCancelRun={cancelRun}
+              onConfirmGate={confirmGate}
+              onCancelGate={() => setGate(null)}
+            />
+          )}
 
-          <div className="health">
-            {health && (
-              <>
-                <Pill tone={health.status === 'ready' ? 'ok' : 'bad'}>api: {health.status}</Pill>
-                {health.checks &&
+          {panel === 'detection' && <DetectionPanel cvEvent={cvEvent} />}
+          {panel === 'impact' && <ImpactPanel prediction={impact} />}
+          {panel === 'stream' && <StreamLog events={events} startedAt={startedAt} />}
+
+          {panel === 'advisories' &&
+            (advisories.length === 0 ? (
+              <Empty>
+                No advisories yet. A run takes roughly 65–80s: four agents each do
+                a RAG lookup, a generation pass, and a hallucination self-check on
+                a second model.
+              </Empty>
+            ) : (
+              advisories.map(a => (
+                <AdvisoryCard key={a.advisory_id} advisory={a} verified={verifiedByIndustry[a.industry]} />
+              ))
+            ))}
+
+          {panel === 'verifier' && <VerifierPanel verified={verified} />}
+          {panel === 'provenance' && <ProvenancePanel traces={traces} verified={verified} />}
+          {panel === 'sources' && <SourcesPanel />}
+
+          {panel === 'ask' && (
+            <>
+              <div className="panel-lede">
+                Each agent answers from the rulebooks it retrieves, and says so
+                when the knowledge base does not cover the question. Runs on a
+                separate model to the pipeline, so asking can never starve a run
+                of its token budget.
+              </div>
+              <div className="ask-industry">
+                {INDUSTRIES.map(i => (
+                  <button
+                    key={i}
+                    className={`btn${askIndustry === i ? ' btn-primary' : ''}`}
+                    onClick={() => setAskIndustry(i)}
+                  >
+                    {i}
+                  </button>
+                ))}
+              </div>
+              {/* Remount per industry so the history belongs to the agent it came from. */}
+              <AskBox key={askIndustry} industry={askIndustry} Citation={Citation} />
+            </>
+          )}
+
+          {panel === 'health' && (
+            <>
+              <div className="panel-lede">
+                Polled every 15 seconds. <code>/health/ready</code> answers 503
+                with the same body when degraded, so a failing dependency shows
+                as a red check rather than as an unreachable API.
+              </div>
+              <div className="health-grid">
+                <Pill tone={healthOk ? 'ok' : 'bad'}>api: {health?.status ?? 'unknown'}</Pill>
+                {health?.checks &&
                   Object.entries(health.checks).map(([k, v]) => (
                     <Pill key={k} tone={v ? 'ok' : 'bad'}>
                       {k}
                     </Pill>
                   ))}
-              </>
-            )}
-          </div>
-        </div>
-
-        {gate && <PreflightPanel gate={gate} onConfirm={confirmGate} onCancel={() => setGate(null)} />}
-
-        {error && <div className="banner banner-bad">{error}</div>}
-
-        <div className="dash-grid">
-          <div className="dash-col">
-            <div className="col-head">PIPELINE STREAM</div>
-            <StreamLog events={events} />
-          </div>
-
-          <div className="dash-col">
-            <div className="col-head">
-              ADVISORIES {advisories.length > 0 && `(${advisories.length})`}
-            </div>
-            {advisories.length === 0 ? (
-              <>
-                <div className="muted small">
-                  Nothing yet. A run takes roughly 65–80s: four agents each do a RAG lookup, a
-                  generation pass, and a hallucination self-check on a second model.
-                </div>
-                {/* The agents can answer from the knowledge base without a run,
-                    so the console is not dead on arrival. */}
-                <AskBox industry="aviation" Citation={Citation} />
-              </>
-            ) : (
-              advisories.map(a => (
-                <AdvisoryCard key={a.advisory_id} advisory={a} verified={verifiedById[a.industry]} />
-              ))
-            )}
-
-            {result?.errors?.length > 0 && (
-              <div className="banner banner-warn">
-                pipeline notes: {result.errors.join(' · ')}
               </div>
-            )}
-          </div>
+              {!health?.checks && <Empty>No per-dependency detail in this response.</Empty>}
+            </>
+          )}
         </div>
-
-        {result?.impact_prediction && (
-          <div className="dash-col">
-            <div className="col-head">ML IMPACT PREDICTION</div>
-            <pre className="rawjson">{JSON.stringify(result.impact_prediction, null, 2)}</pre>
-          </div>
-        )}
-      </div>
-    </PageShell>
+      </main>
+    </div>
   )
 }
