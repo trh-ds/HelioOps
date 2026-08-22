@@ -270,12 +270,47 @@ _NON_CITATIONS = ("source unavailable", "not available", "no source", "n/a", "un
 _MIN_SHARED_WORDS = 3
 
 
+_PAGE_SUFFIX = re.compile(r"\s*[,;]?\s*(?:p{1,2}\.?|pages?)\s*\d+(?:\s*[-–]\s*\d+)?\s*$", re.I)
+# Only text that names an actual file can carry a page locator.
+_HAS_FILENAME = re.compile(r"\.(?:pdf|txt|md)\b", re.I)
+# "pp.10-12" / "page 7" are unambiguous locators; a bare "P.618" is not.
+_EXPLICIT_PAGE = re.compile(r"\s(?:pp\.?|pages?)\s*\d", re.I)
+
+
+def strip_page_suffix(ref: str) -> str:
+    """
+    Drop a trailing page locator: "nat_doc_007.pdf p.42" -> "nat_doc_007.pdf".
+
+    Retrieved chunks now advertise their page in the context header, so the
+    model cites the page too. Without this, every such citation would fail
+    citation_matches(), append CITATION_GAP to safety_flags and drag every
+    advisory down through CITATION_PENALTY - a silent, total regression.
+
+    Stripping is deliberately conservative. ITU recommendations are named
+    "ITU-R P.618" / "P.531" / "M.493", which a naive trailing-page pattern
+    reads as page 618 and mangles into "ITU-R" - caught by
+    test_natural_citations_resolve_to_their_source[ITU-R P.618]. So a suffix is
+    only removed when the ref actually names a file, or when the locator says
+    "pp." / "page" outright. Pinned by TestPageSuffix.
+    """
+    ref = ref or ""
+    if _HAS_FILENAME.search(ref) or _EXPLICIT_PAGE.search(ref):
+        return _PAGE_SUFFIX.sub("", ref).strip()
+    return ref.strip()
+
+
 def citation_matches(ref: str, source: str) -> bool:
     """True if `ref` plausibly names `source`."""
+    ref = strip_page_suffix(ref)
     if not ref or not source:
         return False
     if any(marker in ref.lower() for marker in _NON_CITATIONS):
         return False
+    # Exact filename. Needed explicitly: the word-overlap fallback needs
+    # _MIN_SHARED_WORDS significant words, so a short name like "x.pdf" failed
+    # to match ITSELF once the page suffix was stripped.
+    if ref.strip().lower() == source.strip().lower():
+        return True
     ref_ids, src_ids = _designators(ref), _designators(source)
     if ref_ids & src_ids:
         return True

@@ -60,3 +60,29 @@ const odd = gateDecision({
 assert.equal(odd.headline, 'real warning', 'unknown severity sorts last')
 
 console.log('ok — preflight gate decision')
+
+/* ---- citationUrl: page-accurate deep links ---- */
+{
+  const { citationPath } = await import('./citation.js')
+  const citationUrl = citationPath
+  const q = s => decodeURIComponent(s)
+
+  assert.equal(citationUrl(null), null, 'no ref -> no link')
+  assert.equal(citationUrl('ICAO NAT Doc 007'), null, 'ref naming no file -> no link')
+
+  const withPage = citationUrl('nat_doc_007_2025.pdf p.42')
+  assert.ok(q(withPage).endsWith('/api/kb/source/nat_doc_007_2025.pdf#page=42'), withPage)
+
+  const spaced = citationUrl('nat_doc_007_2025.pdf p. 7')
+  assert.ok(q(spaced).endsWith('#page=7'), spaced)
+
+  const worded = citationUrl('nerc_tpl007_4.pdf page 12')
+  assert.ok(q(worded).endsWith('#page=12'), worded)
+
+  // Missing page still links the document - page 1 beats a dead link.
+  const noPage = citationUrl('noaa_space_weather_scales.txt')
+  assert.ok(q(noPage).endsWith('/api/kb/source/noaa_space_weather_scales.txt'), noPage)
+  assert.ok(!noPage.includes('#page='), 'no page fragment when none was cited')
+
+  console.log('ok — citationUrl')
+}

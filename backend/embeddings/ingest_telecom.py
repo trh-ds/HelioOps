@@ -67,11 +67,11 @@ def run() -> list[dict]:
         chunks = chunk_document(str(path))
         for chunk in chunks:
             chunk["id"] = _stable_id(chunk["source"], chunk["text"])
-            chunk["metadata"] = {
+            chunk.setdefault("metadata", {}).update({
                 "category": category,
                 "subsystem": subsystem,
                 "impact_tag": _impact_tag(chunk["text"]),
-            }
+            })
         all_chunks.extend(chunks)
 
     if missing:

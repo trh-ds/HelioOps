@@ -56,8 +56,29 @@ def verify() -> int:
     return bad
 
 
+def _reset_collections() -> None:
+    """
+    Drop every collection before re-ingesting.
+
+    embed_and_upsert() assigns a fresh uuid4 to every chunk, so an upsert can
+    never overwrite the previous run - it only ever adds. Without this, a
+    rebuild ACCUMULATES: the corpus went 918 -> 1641 chunks in one run, mixing
+    stale copies in with the new ones and silently halving retrieval precision.
+    """
+    client = get_client()
+    for name in COLLECTION_NAMES:
+        try:
+            client.delete_collection(name)
+            print(f"  dropped {name}")
+        except Exception:
+            pass  # never existed; nothing to drop
+
+
 def rebuild() -> None:
     from importlib import import_module
+
+    print("Resetting collections (upserts use fresh ids, so re-ingest would append)")
+    _reset_collections()
 
     total = 0
     for name in _INGESTS:

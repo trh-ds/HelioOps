@@ -178,3 +178,53 @@ class TestMetricsEndpoint:
         assert "helioops_uptime_seconds" in body
         assert "helioops_pipeline_requests_total" in body
         assert "helioops_pipeline_errors_total" in body
+
+
+class TestKBSourceEndpoint:
+    """GET /api/kb/source/{filename} — serves a cited document for deep-linking.
+
+    The allowlist is built in the lifespan handler, and TestClient only runs
+    that inside a context manager, so these use `with TestClient(app)`.
+    """
+
+    def test_lists_sources(self):
+        with TestClient(app) as c:
+            resp = c.get("/api/kb/sources")
+            assert resp.status_code == 200
+            sources = resp.json()["sources"]
+            assert sources, "no citable sources indexed"
+            assert any(s.endswith(".pdf") for s in sources)
+
+    def test_known_source_returns_200_inline(self):
+        with TestClient(app) as c:
+            name = next(
+                s for s in c.get("/api/kb/sources").json()["sources"] if s.endswith(".pdf")
+            )
+            resp = c.get(f"/api/kb/source/{name}")
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/pdf"
+            # inline, not attachment: the point is the browser's own PDF viewer
+            # honouring #page=N rather than downloading the file.
+            assert "inline" in resp.headers["content-disposition"]
+
+    def test_unknown_source_returns_404(self):
+        with TestClient(app) as c:
+            assert c.get("/api/kb/source/not_a_real_document.pdf").status_code == 404
+
+    def test_path_traversal_is_rejected(self):
+        """The filename is a dict key, never part of a path - so traversal cannot resolve."""
+        with TestClient(app) as c:
+            for attack in (
+                "../../../../etc/passwd",
+                "..%2F..%2F..%2Fetc%2Fpasswd",
+                "....//....//etc/passwd",
+                "/etc/passwd",
+                "C:\Windows\win.ini",
+            ):
+                resp = c.get(f"/api/kb/source/{attack}")
+                assert resp.status_code in (400, 404), f"{attack} -> {resp.status_code}"
+
+    def test_env_file_is_not_servable(self):
+        with TestClient(app) as c:
+            for name in (".env", "chroma.sqlite3", "app.py"):
+                assert c.get(f"/api/kb/source/{name}").status_code == 404

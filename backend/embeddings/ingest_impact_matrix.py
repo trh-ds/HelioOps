@@ -26,13 +26,13 @@ def run() -> list[dict]:
     chunks_memo = chunk_document(str(DATA_DIR / "impact_matrix/noaa_tech_memo.pdf"))
     for chunk in chunks_memo:
         chunk["id"] = _stable_id(chunk["source"], chunk["text"])
-        chunk["metadata"] = {"category": _category(chunk["text"], "technical_report")}
+        chunk.setdefault("metadata", {}).update({"category": _category(chunk["text"], "technical_report")})
 
     # nesdis_impacts.pdf
     chunks_nesdis = chunk_document(str(DATA_DIR / "impact_matrix/nesdis_impacts.pdf"))
     for chunk in chunks_nesdis:
         chunk["id"] = _stable_id(chunk["source"], chunk["text"])
-        chunk["metadata"] = {"category": _category(chunk["text"], "industry_briefing")}
+        chunk.setdefault("metadata", {}).update({"category": _category(chunk["text"], "industry_briefing")})
 
     # noaa_space_weather_scales.txt — split on blank lines, skip tiktoken chunking
     with open(str(DATA_DIR / "impact_matrix/noaa_space_weather_scales.txt"), encoding="utf-8") as f:

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageShell from './PageShell.jsx'
-import { getHealth, getPreflight, getResult, getStorms, runPipeline, streamPipeline } from './api.js'
+import {
+  citationUrl,
+  getHealth,
+  getPreflight,
+  getResult,
+  getStorms,
+  runPipeline,
+  streamPipeline,
+} from './api.js'
 // toneOf is already taken below by the stream-event colouring.
 import { SEVERITIES, gateDecision, toneOf as severityTone } from './preflight.js'
 import './dashboard.css'
@@ -107,6 +115,36 @@ function StreamLog({ events }) {
 
 /* ---------- Advisory ---------- */
 
+/* A citation the operator can actually follow.
+
+   source_ref carries a page now ("nat_doc_007_2025.pdf p.42"), so this opens
+   the source document at that page in a new tab using the browser's own PDF
+   viewer. A ref that names no file (a bare regulation code) stays plain text
+   rather than becoming a dead link. */
+function Citation({ refText }) {
+  if (!refText) return null
+  const href = citationUrl(refText)
+  if (!href) {
+    return (
+      <span className="act-cite" title="source_ref - must resolve to a retrieved chunk">
+        {refText}
+      </span>
+    )
+  }
+  return (
+    <a
+      className="act-cite act-cite-link"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={`open ${refText}`}
+    >
+      {refText}
+    </a>
+  )
+}
+
+
 function AdvisoryCard({ advisory, verified }) {
   const [open, setOpen] = useState(true)
   const flags = advisory.safety_flags ?? []
@@ -158,9 +196,7 @@ function AdvisoryCard({ advisory, verified }) {
                 <div className="act-text">{a.action}</div>
                 <div className="act-meta">
                   <span className="act-when">{a.time_window}</span>
-                  <span className="act-cite" title="source_ref — must resolve to a retrieved chunk">
-                    {a.source_ref}
-                  </span>
+                  <Citation refText={a.source_ref} />
                 </div>
                 <div className="act-why muted small">{a.rationale}</div>
               </li>

@@ -256,3 +256,9 @@
 }
 .preflight-findings li { margin-bottom: 9px; }
 .preflight-title { font-size: 13px; }
+
+/* A citation that opens its source. Underline only on hover so the action
+   reads as available without turning the meta row into a wall of links. */
+.act-cite-link { text-decoration: none; cursor: pointer; }
+.act-cite-link:hover,
+.act-cite-link:focus-visible { text-decoration: underline; color: rgba(143, 240, 192, 1); }

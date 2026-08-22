@@ -92,22 +92,34 @@ def run() -> list[dict]:
             first, last = page_range
             pages = pages[first - 1 : last]  # 1-indexed, inclusive
             print(f"{filename}: using pages {first}-{last} of the document")
-        full_text = "\n\n".join(pages)
-        # Re-insert the space PDF extraction drops between a sentence-ending
-        # punctuation mark and the next capitalised word.
-        full_text = re.sub(r"([.!?])([A-Z])", r"\1 \2", full_text)
-
         _purge(collection, filename)
-        chunks = chunk_text(full_text, chunk_size=512, overlap=64, source=filename)
+
+        # Page by page, so every chunk keeps the page it came from - the same
+        # reason chunk_document() stopped joining. This path has its own loader
+        # (pdfplumber, because pypdf extracted almost nothing from these), so
+        # it needs the same treatment rather than inheriting it.
+        page_offset = page_range[0] - 1 if page_range else 0
+        chunks = []
+        for idx, page_text in enumerate(pages):
+            if not page_text or not page_text.strip():
+                continue
+            # Re-insert the space PDF extraction drops between a sentence-ending
+            # punctuation mark and the next capitalised word.
+            page_text = re.sub(r"([.!?])([A-Z])", r"\1 \2", page_text)
+            for chunk in chunk_text(page_text, chunk_size=512, overlap=64, source=filename):
+                # Number against the real document, not the slice, so the link
+                # opens the page the operator is actually being cited to.
+                chunk.setdefault("metadata", {})["page"] = page_offset + idx + 1
+                chunks.append(chunk)
         print(f"{filename}: {len(chunks)} chunks")
 
         for chunk in chunks:
             chunk["id"] = _stable_id(chunk["source"], chunk["text"])
-            chunk["metadata"] = {
+            chunk.setdefault("metadata", {}).update({
                 "category": category,
                 "region": region,
                 "frequency_type": _frequency_type(chunk["text"]),
-            }
+            })
         all_chunks.extend(chunks)
 
     if missing:

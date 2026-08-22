@@ -115,9 +115,14 @@ def format_context(chunks: list[RetrievedChunk], max_chars: int = 12_000) -> str
     total_chars = 0
 
     for chunk in chunks:
+        # The page is what lets the console deep-link the citation into the PDF
+        # (#page=N). Advertising it here is what makes the model cite it, so the
+        # locator survives all the way from ingest to the operator's click.
+        page = chunk.metadata.get("page")
+        source = f"{chunk.source} p.{page}" if page else chunk.source
         header = (
             f"[CHUNK: {chunk.chunk_id} | "
-            f"Source: {chunk.source} | "
+            f"Source: {source} | "
             f"Similarity: {chunk.similarity:.2f}]"
         )
         block = f"{header}\n---\n{chunk.text}\n---\n"

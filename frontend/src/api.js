@@ -10,6 +10,8 @@
    import.meta.env; a runtime env var does nothing) and the backend's CORS
    origins must list the SPA origin. */
 
+import { citationPath } from './citation.js'
+
 const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 
 const json = async (path, init) => {
@@ -29,6 +31,15 @@ const json = async (path, init) => {
 /* /health/ready answers 503 with the same body shape when degraded — parse
    unconditionally so the per-check pills render instead of "unreachable". */
 export const getHealth = async () => (await fetch(BASE + '/health/ready')).json()
+
+/* Absolute URL for a citation, or null if the ref names no document.
+   The parsing lives in citation.js so the node test runner can reach it
+   without vite's import.meta.env. */
+export const citationUrl = ref => {
+  const path = citationPath(ref)
+  return path ? BASE + path : null
+}
+
 export const getStorms = () => json('/api/storms')
 export const getPreflight = stormId => json(`/api/preflight/${encodeURIComponent(stormId)}`)
 export const getResult = stormId => json(`/api/result/${encodeURIComponent(stormId)}`)

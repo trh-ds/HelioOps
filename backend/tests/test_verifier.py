@@ -290,3 +290,62 @@ def test_severity_floor_is_enforced_not_just_flagged(monkeypatch):
     assert any("MEDIUM" in e for e in advisory.generation_errors), (
         "the original model value must be recorded"
     )
+
+
+class TestPageSuffix:
+    """Citations now carry a page (`file.pdf p.42`) because retrieved chunks
+    advertise one. If the matcher does not tolerate that, EVERY advisory gains
+    a CITATION_GAP flag and loses confidence through CITATION_PENALTY - a
+    silent, total regression. These pin the tolerance."""
+
+    def test_exact_name_with_page_matches(self):
+        from backend.genai.guardrails import citation_matches
+
+        assert citation_matches("x.pdf p.4", "x.pdf")
+
+    def test_page_forms_all_match(self):
+        from backend.genai.guardrails import citation_matches
+
+        for ref in (
+            "nat_doc_007_2025.pdf p.42",
+            "nat_doc_007_2025.pdf p. 42",
+            "nat_doc_007_2025.pdf pp.10-12",
+            "nat_doc_007_2025.pdf page 7",
+            "nat_doc_007_2025.pdf, p.42",
+        ):
+            assert citation_matches(ref, "nat_doc_007_2025.pdf"), ref
+
+    def test_page_suffix_does_not_make_wrong_doc_match(self):
+        from backend.genai.guardrails import citation_matches
+
+        assert not citation_matches("NERC TPL-999-9 p.4", "nerc_tpl007_4.pdf")
+
+    def test_itu_designator_is_not_a_page(self):
+        """ITU recommendations are named "P.618" / "P.531" / "M.493". A naive
+        trailing-page pattern reads that as page 618 and mangles the ref down to
+        "ITU-R", which stops it resolving to itu_r_p618_*.pdf."""
+        from backend.genai.guardrails import citation_matches, strip_page_suffix
+
+        assert strip_page_suffix("ITU-R P.618") == "ITU-R P.618"
+        assert strip_page_suffix("ITU-R M.493") == "ITU-R M.493"
+        assert citation_matches("ITU-R P.618", "itu_r_p618_earth_space_propagation.pdf")
+
+    def test_strip_leaves_plain_refs_alone(self):
+        from backend.genai.guardrails import strip_page_suffix
+
+        assert strip_page_suffix("nat_doc_007_2025.pdf") == "nat_doc_007_2025.pdf"
+        # A version number is not a page locator and must survive.
+        assert strip_page_suffix("ICAO NAT Doc 007") == "ICAO NAT Doc 007"
+
+    def test_grounded_against_retrieved_chunk_with_page(self):
+        from backend.genai.guardrails import citation_is_grounded
+        from backend.genai.models import RetrievedChunk
+
+        chunk = RetrievedChunk(
+            chunk_id="c1",
+            text="...",
+            source="nat_doc_007_2025.pdf",
+            similarity=0.8,
+            metadata={"page": 42},
+        )
+        assert citation_is_grounded("nat_doc_007_2025.pdf p.42", [chunk])

@@ -88,10 +88,29 @@ def chunk_document(
     chunk_size: int = 512,
     overlap: int = 64,
 ) -> list[dict]:
-    pages = load_pdf(path)
-    full_text = "\n\n".join(pages)
+    """
+    Chunk a document PAGE BY PAGE so every chunk carries the page it came from.
+
+    This used to be `"\\n\\n".join(pages)` before a single chunk_text() call,
+    which destroyed the page number at ingest time - and no amount of frontend
+    work recovers it, so a citation could only ever name a file, never a place
+    inside it. Chunking per page is what makes `file.pdf p.42` possible.
+
+    The cost is that chunks no longer span page boundaries, which is a fair
+    trade: a citation that straddles two pages cannot point at one anyway.
+    """
     source = Path(path).name
-    chunks = chunk_text(full_text, chunk_size=chunk_size, overlap=overlap, source=source)
+    chunks: list[dict] = []
+
+    for page_no, page_text in enumerate(load_pdf(path), start=1):
+        if not page_text or not page_text.strip():
+            continue
+        for chunk in chunk_text(page_text, chunk_size=chunk_size, overlap=overlap, source=source):
+            # store._build_metadata() promotes chunk["metadata"] into the Chroma
+            # record, so the page has to live there to survive the round trip.
+            chunk.setdefault("metadata", {})["page"] = page_no
+            chunks.append(chunk)
+
     avg_tokens = sum(c["token_count"] for c in chunks) / len(chunks) if chunks else 0
     print(f"{source}: {len(chunks)} chunks, avg {avg_tokens:.0f} tokens/chunk")
     return chunks

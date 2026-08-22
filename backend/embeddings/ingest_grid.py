@@ -33,10 +33,10 @@ def run() -> list[dict]:
         chunks = chunk_document(path)
         for chunk in chunks:
             chunk["id"] = _stable_id(chunk["source"], chunk["text"])
-            chunk["metadata"] = {
+            chunk.setdefault("metadata", {}).update({
                 "category": category,
                 "latitude_zone": _latitude_zone(chunk["text"]),
-            }
+            })
         all_chunks.extend(chunks)
 
     embed_and_upsert("grid_kb", all_chunks)

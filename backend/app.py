@@ -24,6 +24,7 @@ import asyncio
 import json
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from backend.config import settings
 from backend.logging import setup_logging, get_logger
@@ -33,6 +34,7 @@ log = get_logger("backend.app")
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from backend.middleware import (
     SecurityHeadersMiddleware,
@@ -72,6 +74,14 @@ async def _lifespan(_app: FastAPI):
         await asyncio.to_thread(health_snapshot, True)
     except Exception as exc:  # a warm-up must never stop the app from serving
         log.warning("preflight health warm-up skipped: %s", exc)
+
+    # Citation deep-links resolve against this. Globbed once, so a request
+    # filename is only ever a dict key and never part of a filesystem path.
+    try:
+        _KB_SOURCES.update(_index_kb_sources())
+        log.info("kb_sources_indexed", count=len(_KB_SOURCES))
+    except Exception as exc:
+        log.warning("kb source index skipped: %s", exc)
     yield
 
 
@@ -200,6 +210,57 @@ async def detect_storm(storm_id: str):
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {result.errors}")
 
     return result
+
+
+# ── Knowledge-base sources ──────────────────────────────────────────────────
+#
+# Built once at import from what is actually on disk. This is an ALLOWLIST, not
+# a path join: the filename from the URL is only ever used as a dict key, so no
+# amount of "../" or absolute path in the request can reach outside DATA_DIR.
+# Same posture as validate_storm_id() - decide against a known-good set rather
+# than try to sanitise attacker-controlled input.
+_KB_SOURCES: dict[str, Path] = {}
+
+
+def _index_kb_sources() -> dict[str, Path]:
+    from backend.paths import DATA_DIR
+
+    index: dict[str, Path] = {}
+    for pattern in ("*.pdf", "*.txt", "*.md"):
+        for path in DATA_DIR.rglob(pattern):
+            if path.is_file():
+                # Later duplicates lose; the KBs use distinct filenames.
+                index.setdefault(path.name, path.resolve())
+    return index
+
+
+_MEDIA_TYPES = {".pdf": "application/pdf", ".txt": "text/plain", ".md": "text/plain"}
+
+
+@app.get("/api/kb/source/{filename}")
+async def get_kb_source(filename: str):
+    """
+    Serve a cited source document so the console can deep-link into it.
+
+    Rendered inline (Content-Disposition: inline) because the point is Chrome's
+    and Firefox's built-in PDF viewers honouring `#page=N` on the URL - which is
+    what turns a citation into "open this document at the page it came from"
+    with no PDF.js and no new dependency.
+    """
+    path = _KB_SOURCES.get(filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"Unknown source: {filename}")
+    return FileResponse(
+        path,
+        media_type=_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
+        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
+    )
+
+
+@app.get("/api/kb/sources")
+async def list_kb_sources():
+    """Every citable document, so a client can tell a live link from a dead one."""
+    return {"sources": sorted(_KB_SOURCES)}
 
 
 @app.get("/api/preflight/{storm_id}")

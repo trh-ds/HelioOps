@@ -30,7 +30,7 @@ def run() -> list[dict]:
     chunks = chunk_document(str(DATA_DIR / "aviation/nat_doc_007_2025.pdf"))
     for chunk in chunks:
         chunk["id"] = _stable_id(chunk["source"], chunk["text"])
-        chunk["metadata"] = _classify(chunk["text"])
+        chunk.setdefault("metadata", {}).update(_classify(chunk["text"]))
 
     embed_and_upsert("aviation_kb", chunks)
     print(f"Total chunks ingested: {len(chunks)}")
