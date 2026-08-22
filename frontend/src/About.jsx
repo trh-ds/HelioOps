@@ -1,4 +1,4 @@
-import { ABOUT_STATS, BETS, CAVEATS, REAL, STAGES, TEAM } from './data.js'
+import { ABOUT_STATS, BETS, STAGES, TEAM } from './data.js'
 import PageShell from './PageShell.jsx'
 import PipelineFlow from './PipelineFlow.jsx'
 import './pages.css'
@@ -78,39 +78,10 @@ export default function About({ showTeam = true }) {
         </div>
       </section>
 
-      <section className="section" id="maturity">
-        <div className="section-head">
-          <span className="section-no">2.3</span>
-          <h2 className="section-h">Current maturity, stated plainly</h2>
-          <span className="rule-hatch" />
-        </div>
-        <div className="hairline-grid maturity">
-          <div className="maturity-col good">
-            <div className="maturity-head good">REAL AND RUNNING</div>
-            {REAL.map(text => (
-              <div className="maturity-item" key={text}>
-                <span className="dash">—</span>
-                <span>{text}</span>
-              </div>
-            ))}
-          </div>
-          <div className="maturity-col warn">
-            <div className="maturity-head warn">CAVEATS WORTH KNOWING</div>
-            {CAVEATS.map(text => (
-              <div className="maturity-item" key={text}>
-                <span className="dash">—</span>
-                <span>{text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <p className="section-note mono">Production-shaped, not yet production-proven.</p>
-      </section>
-
       {showTeam && (
         <section className="section">
           <div className="section-head">
-            <span className="section-no">2.4</span>
+            <span className="section-no">2.3</span>
             <h2 className="section-h">The Fantastic 4</h2>
             <span className="rule-hatch" />
           </div>
