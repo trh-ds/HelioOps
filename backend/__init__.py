@@ -35,9 +35,14 @@ os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 # joblib probes physical core count by shelling out to `wmic`, which Windows 11
 # build 26xxx no longer ships. The failure is non-fatal but dumps a full
 # subprocess traceback into the output of every ML run and every test session.
-# Setting the count explicitly skips the probe. os.cpu_count() is the logical
-# count, which is what joblib falls back to anyway.
-os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+# loky only skips the probe when LOKY_MAX_CPU_COUNT is STRICTLY BELOW
+# os.cpu_count() (see loky/backend/context.py: `if cpu_count_user <
+# os_cpu_count: return`), so setting it to the logical count -- as this did --
+# left the probe, the warning and the traceback firing every run.
+# ponytail: logical//2 is the physical count on any SMT machine and is exactly
+# what the probe was looking for; on a non-SMT host it under-subscribes by 2x.
+# Read the real topology only if joblib parallelism ever becomes a bottleneck.
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(max(1, (os.cpu_count() or 2) // 2)))
 
 from dotenv import load_dotenv  # noqa: E402 — must follow the env setup above
 

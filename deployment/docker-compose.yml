@@ -18,9 +18,10 @@ services:
       context: ..
       dockerfile: deployment/Dockerfile.frontend
       args:
-        # NEXT_PUBLIC_* is inlined at build time, so it must be a build arg,
-        # not a runtime environment variable.
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        # vite inlines import.meta.env at build time, so this must be a build
+        # arg, not a runtime environment variable. NEXT_PUBLIC_API_URL was the
+        # Next-era name and nothing has read it since the SPA rewrite.
+        VITE_API_URL: http://localhost:8000
     ports: ["3000:3000"]
     environment:
       BACKEND_URL: http://backend:8000

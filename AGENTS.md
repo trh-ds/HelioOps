@@ -19,7 +19,7 @@ Python 3.12 + FastAPI backend, Vite/React 18 static frontend, ChromaDB RAG, Ligh
 Everything is run from the repo root with `PYTHONPATH=.`.
 ```
 pip install -r backend/requirements-dev.txt   # requirements.txt alone = serving only
-pytest backend/tests -q                       # 154 tests
+pytest backend/tests -q                       # 244 tests
 ruff check backend/ --ignore=E501,F403,E402
 uvicorn backend.app:app --reload              # API on :8000
 cd frontend && npm ci && npm run dev   # vite dev server; npm run build -> dist/
@@ -38,7 +38,7 @@ python backend/ml/03_anchor_test.py            # physics gate; exits non-zero on
 ```
 
 ## Current State & Focus
-- Works: all 4 layers end-to-end; 154 tests green; every REST + WS endpoint verified
+- Works: all 4 layers end-to-end; 244 tests green; every REST + WS endpoint verified
   against a live uvicorn; ruff clean.
 - 2026-08-21: repo collapsed to backend/ deployment/ frontend/. Dropped agentscope,
   langchain-core, langchain-groq, redis, fakeredis. All runtime paths resolve from
@@ -62,8 +62,8 @@ python backend/ml/03_anchor_test.py            # physics gate; exits non-zero on
   Backend not deployed. Runbooks: docs/DEPLOYMENT.md, docs/HOW_TO_DEPLOY_BACKEND.md.
 - Chroma corpus fully populated: 918 chunks (aviation 242, maritime 214, telecom 195,
   impact_matrix 166, grid 101). Confirmed live through retrieval, not just sqlite.
-- frontend/ is a static marketing SPA with hardcoded copy in src/data.js; the
-  dashboard that consumes /api/detect and /ws/stream does not exist yet.
+- frontend/ is a marketing SPA (hardcoded copy in src/data.js) PLUS a live console:
+  src/Dashboard.jsx drives src/api.js against /api/detect, /api/result and /ws/stream.
 - Flaky: `tests/test_retrieval.py` intermittently fails with a chromadb
   InternalError under full-suite ordering; passes when run alone. Not CV-related.
 
@@ -181,10 +181,27 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
 - test_retrieval.py fails ~1 full-suite run in 3 with a chromadb segment-reader
   InternalError. Passes standalone (11/11), KB counts stay correct. Pre-existing
   chromadb-internal bug, mitigated but not fixed by the retry in collections.py.
+- The ingest CLIs used to default `--base-dir`/cache paths to the CWD while `detect()`
+  resolves everything from `backend.paths`. Running the documented repo-root commands
+  therefore wrote FITS/JSON to `<root>/data/cached/` where the detector never looks, and
+  detection silently degraded to the stub forever. All five now default to BACKEND_DIR.
+- loky skips its `wmic` physical-core probe only when LOKY_MAX_CPU_COUNT is STRICTLY
+  BELOW os.cpu_count(); setting it to the logical count left the warning + traceback
+  firing. `backend/__init__.py` now sets logical//2.
+- `test_api_endpoints.py::test_valid_storm_id_returns_200_or_500_or_429` runs the REAL
+  pipeline against the REAL Groq API. With quota free the suite is ~45s; with the pooled
+  keys saturated (or CI's placeholder GROQ_API_KEY) that one test drags the suite to
+  9-12 min. It is the only live-network test in the suite.
+- `_pick_key()` in genai/llm.py waits for TPM budget in an unbounded `while True`; the
+  per-call timeout and GROQ_MAX_RETRIES do not bound it. With every key parked, /api/detect
+  and /ws/stream stall for minutes with no error and no client-side timeout either.
 - HF Spaces builds `Dockerfile` at the REPO ROOT. `deployment/Dockerfile.backend`
   is never picked up — the two must be kept in step by hand.
-- `NEXT_PUBLIC_API_URL` is inlined into the frontend bundle at build time; setting it
-  as a runtime env var does nothing. Pass it as a Docker build arg.
+- The frontend API base is `VITE_API_URL` (NOT the Next-era `NEXT_PUBLIC_API_URL`, which
+  nothing reads). Vite inlines it at BUILD time, so a runtime env var does nothing --
+  pass it as a Docker build arg / Vercel build env. Empty default = relative paths, which
+  is correct for the dev proxy and for single-origin deploys and WRONG on Vercel, where
+  the catch-all rewrite answers /api/* with index.html and a 200.
 - python:3.12-slim has no `curl` — container healthchecks must use python/node.
 - `backend.pipeline` defines `PipelineResult` and imports the adapters; a module-level
   `from backend.pipeline import PipelineResult` in an adapter closes the loop and makes
@@ -237,3 +254,7 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
 and documented, 38-feature physics builder with train/serve parity check, distributed Optuna
 HPO pods with a two-laptop runbook. Never trainable — OMNI supplies every driver and no label.
 Deleted 2026-08-22; recoverable from git history if IONEX/GOES label builders ever land.
+2026-08-22 — CI's frontend job ran `npm run lint` and `npx tsc --noEmit`, neither of which exists in this repo (no eslint config, no tsconfig, no typescript dep) — both carried over from the deleted Next.js app, so the job could only ever fail. Replaced with `npm test`; added the root Dockerfile to the image matrix so the image HF Spaces actually builds is no longer the only untested one.
+
+## Changelog
+2026-08-22 | full-project verification sweep | backend/__init__.py, backend/cv/data_ingestion/{cache_fits,donki_client,flare_classifier,l1_client}.py, backend/cv/image_threshold_algorithm/preprocessing.py, frontend/src/api.js, .github/workflows/ci.yml | ingest CLIs resolve caches from BACKEND_DIR not cwd; frontend gets a VITE_API_URL base so a split Vercel/Spaces deploy can reach the API; CI frontend job made runnable; deleted the pre-refactor leftovers (root cv/ embeddings/ genai/ ML_after_CV/ tests/ data/, frontend/.next, .env.local, tsbuildinfo)

@@ -1,9 +1,19 @@
 /* Backend client.
-   Paths are relative so vite's dev proxy (vite.config.js) forwards them to the
-   API on :8000; in a built deployment they hit whatever origin serves the app. */
+   Paths are relative by default so vite's dev proxy (vite.config.js) forwards
+   them to the API on :8000, and a single-origin deployment (one container
+   serving both) needs no configuration.
+
+   Split deployments — the SPA on Vercel, the API on a Space — have no backend
+   at the SPA's origin: vercel.json rewrites /(.*) to /index.html, so
+   `fetch('/api/storms')` returns the HTML shell with a 200 and every call dies
+   in res.json(). Set VITE_API_URL to the API origin at BUILD time (vite inlines
+   import.meta.env; a runtime env var does nothing) and the backend's CORS
+   origins must list the SPA origin. */
+
+const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 
 const json = async (path, init) => {
-  const res = await fetch(path, init)
+  const res = await fetch(BASE + path, init)
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -28,8 +38,8 @@ export const runPipeline = stormId =>
     The backend streams pipeline.stage, agent.thinking, advisory.generated and
     pipeline.complete; `onEvent` sees every one of them in order. */
 export function streamPipeline(stormId, { onEvent, onError, onClose } = {}) {
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${proto}://${window.location.host}/ws/stream`)
+  const origin = BASE || window.location.origin
+  const ws = new WebSocket(`${origin.replace(/^http/, 'ws')}/ws/stream`)
 
   ws.onopen = () => ws.send(JSON.stringify({ action: 'run_pipeline', storm_id: stormId }))
   ws.onmessage = e => {
@@ -44,7 +54,7 @@ export function streamPipeline(stormId, { onEvent, onError, onClose } = {}) {
     // open so a second run can reuse it, but the UI can stop waiting here.
     if (msg.event === 'pipeline.complete') onClose?.(msg)
   }
-  ws.onerror = () => onError?.(new Error('WebSocket error — is the backend running on :8000?'))
+  ws.onerror = () => onError?.(new Error('WebSocket error — is the backend reachable?'))
   ws.onclose = () => onClose?.()
 
   return () => ws.readyState <= 1 && ws.close()

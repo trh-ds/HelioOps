@@ -21,6 +21,8 @@ import json
 import logging
 from pathlib import Path
 
+from backend.paths import BACKEND_DIR
+
 import requests
 
 log = logging.getLogger(__name__)
@@ -149,7 +151,7 @@ def main() -> None:
 
     if args.prefetch and args.storm:
         cfg = STORM_L1_CONFIG[args.storm]
-        result = fetch_l1_wind(cfg["cache_file"])
+        result = fetch_l1_wind(str(BACKEND_DIR / cfg["cache_file"]))
         print(f"L1 wind for {args.storm}:")
         for k, v in result.items():
             print(f"  {k}: {v}")

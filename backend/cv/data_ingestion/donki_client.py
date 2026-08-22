@@ -19,6 +19,8 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from backend.paths import BACKEND_DIR
 from typing import Optional
 
 import requests
@@ -206,7 +208,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Prefetch DONKI CME analyses to cache")
     p.add_argument("--prefetch", action="store_true")
     p.add_argument("--storm", choices=list(STORM_DONKI_CONFIG))
-    p.add_argument("--cache-dir", default="data/cached/donki")
+    p.add_argument("--cache-dir", default=str(BACKEND_DIR / "data" / "cached" / "donki"))
     args = p.parse_args()
 
     if args.prefetch and args.storm:

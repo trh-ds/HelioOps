@@ -22,6 +22,8 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from backend.paths import BACKEND_DIR
+
 import requests
 
 log = logging.getLogger(__name__)
@@ -198,7 +200,7 @@ def main() -> None:
 
     if args.prefetch and args.storm:
         cfg = STORM_FLARE_CONFIG[args.storm]
-        result = fetch_and_classify_flare(cfg["storm_date"], cfg["cache_file"])
+        result = fetch_and_classify_flare(cfg["storm_date"], str(BACKEND_DIR / cfg["cache_file"]))
         print(f"Flare result for {args.storm}:")
         for k, v in result.items():
             print(f"  {k}: {v}")

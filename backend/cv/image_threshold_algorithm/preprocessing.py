@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+
+from backend.paths import BACKEND_DIR
 from typing import Optional
 
 import cv2
@@ -533,11 +535,11 @@ def main() -> None:
     p.add_argument("--storm", choices=list(STORM_PNG_DIRS), help="Storm ID to preprocess")
     p.add_argument("--input-dir",  help="Override: directory of raw FITS")
     p.add_argument("--output-dir", help="Override: where png/ and diff/ are written")
-    p.add_argument("--base-dir", default=".", help="Repo root (default: cwd)")
+    p.add_argument("--base-dir", default=None, help="Cache root (default: the backend/ package)")
     args = p.parse_args()
 
     if args.storm:
-        out_dir   = str(Path(args.base_dir) / STORM_PNG_DIRS[args.storm])
+        out_dir   = str(Path(args.base_dir or BACKEND_DIR) / STORM_PNG_DIRS[args.storm])
         input_dir = args.input_dir or str(Path(out_dir) / "raw")
     elif args.input_dir and args.output_dir:
         input_dir, out_dir = args.input_dir, args.output_dir

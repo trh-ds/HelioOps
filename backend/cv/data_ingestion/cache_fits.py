@@ -19,6 +19,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from backend.paths import BACKEND_DIR
+
 log = logging.getLogger(__name__)
 
 # ── CCOR-1 S3 ────────────────────────────────────────────────────────────────
@@ -126,7 +128,7 @@ def list_s3_bucket(prefix: str = "") -> None:
         print(result.stdout)
 
 
-def fetch_storm(storm_id: str, base_dir: str = ".") -> list[str]:
+def fetch_storm(storm_id: str, base_dir: str | None = None) -> list[str]:
     """
     Download all raw FITS for a storm.
 
@@ -136,7 +138,10 @@ def fetch_storm(storm_id: str, base_dir: str = ".") -> list[str]:
     if storm_id not in OUTPUT_ROOTS:
         raise ValueError(f"Unknown storm_id '{storm_id}'. Known: {list(OUTPUT_ROOTS)}")
 
-    output_dir = str(Path(base_dir) / OUTPUT_ROOTS[storm_id])
+    # Default to BACKEND_DIR, not cwd: detect() reads these caches through
+    # backend.paths, so a cwd-relative default writes the FITS somewhere the
+    # detector never looks and every run silently degrades to the stub.
+    output_dir = str((Path(base_dir) if base_dir else BACKEND_DIR) / OUTPUT_ROOTS[storm_id])
     paths: list[str] = []
 
     # CCOR-1 days
@@ -161,7 +166,7 @@ def main() -> None:
     p.add_argument("--storm", choices=list(OUTPUT_ROOTS), help="Storm ID to download")
     p.add_argument("--list-bucket", action="store_true", help="List CCOR-1 S3 top level")
     p.add_argument("--prefix", default="", help="S3 prefix for --list-bucket")
-    p.add_argument("--base-dir", default=".", help="Repo root (default: cwd)")
+    p.add_argument("--base-dir", default=None, help="Cache root (default: the backend/ package)")
     args = p.parse_args()
 
     if args.list_bucket:

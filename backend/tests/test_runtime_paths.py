@@ -85,3 +85,45 @@ class TestCheckpointPathResolution:
         assert severe.gps_error_m > 15.0, "G5 anchor below the severe GPS floor"
         assert severe.hf_blackout_prob > 0.80, "G5 anchor below the severe HF floor"
         assert quiet.gps_error_m < 2.0, "quiet baseline is not quiet"
+
+
+class TestIngestCachePathResolution:
+    """
+    Third instance of the same silent class: the ingest CLIs defaulted their
+    cache roots to the CWD while detect() resolves them from backend.paths, so
+    the documented `PYTHONPATH=. python -m backend.cv...` commands wrote FITS
+    and JSON into <repo>/data/cached/ where the detector never looks. Nothing
+    raised -- detect() just fell back to the stub for every run, forever.
+    """
+
+    def test_fits_cache_defaults_under_the_backend_package(self):
+        from backend.cv.data_ingestion import cache_fits
+        from backend.paths import BACKEND_DIR
+
+        captured = {}
+
+        def fake_sync(year, month, day, output_dir):
+            captured["dir"] = output_dir
+            return []
+
+        with patch.object(cache_fits, "sync_ccor1", fake_sync):
+            cache_fits.fetch_storm("2024-10-G4")
+        assert Path(captured["dir"]).is_relative_to(BACKEND_DIR)
+
+    def test_no_ingest_cli_defaults_an_argument_to_the_cwd(self):
+        """
+        Source check, not a call: these defaults are argparse literals, so the
+        only way to reach them is to run the CLI, which downloads. `default="."`
+        and a bare `default="data/..."` are both cwd-relative and both wrong.
+        """
+        from backend.cv import data_ingestion, image_threshold_algorithm
+
+        offenders = []
+        for pkg in (data_ingestion, image_threshold_algorithm):
+            for src_file in Path(pkg.__file__).parent.glob("*.py"):
+                for i, line in enumerate(src_file.read_text(encoding="utf-8").splitlines(), 1):
+                    if "add_argument" not in line or "default=" not in line:
+                        continue
+                    if 'default="."' in line or 'default="data/' in line:
+                        offenders.append(f"{src_file.name}:{i}")
+        assert not offenders, f"cwd-relative CLI defaults: {offenders}"

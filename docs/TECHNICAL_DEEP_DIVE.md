@@ -242,7 +242,8 @@ lint-frontend ─► build-frontend ─┘
 
 - **lint-backend** — `ruff check` + `ruff format --check`
 - **test-backend** — installs all three requirement sets, runs pytest with `GROQ_API_KEY=test-key`
-- **lint-frontend** — `npm ci --legacy-peer-deps`, `next lint`, `tsc --noEmit`
+- **frontend** — `npm ci`, `npm test` (src/data.test.mjs), `npm run build`. No lint or
+  typecheck step: the SPA is plain JS with no eslint config and no tsconfig.
 - **build-frontend** — real `next build`, gated on lint
 - **docker-build** — Buildx with GitHub Actions layer cache (`cache-from/to: type=gha`), builds both
   images, `push: false`
