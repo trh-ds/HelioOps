@@ -222,17 +222,30 @@
   padding: 13px 15px;
   margin-bottom: 18px;
 }
-.preflight-summary {
+.preflight-head {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
-.preflight-summary .col-head { margin-bottom: 0; }
+.preflight-head .col-head { margin-bottom: 0; }
+
+/* Layer 1: the sentence that decides the click. Sized above the pills on
+   purpose — the tally is scannable, this is what it means. */
+.preflight-headline {
+  margin: 9px 0 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #e8ebff;
+}
+.preflight-headline.tone-ok   { color: #8ff0c0; }
+.preflight-headline.tone-warn { color: #ffd489; }
+.preflight-headline.tone-bad  { color: #ff9a9a; }
+
 .preflight-actions {
   display: flex;
   gap: 8px;
-  margin-left: auto;
+  flex-wrap: wrap;
 }
 .preflight-findings { margin-top: 10px; }
 .preflight-findings summary { cursor: pointer; }

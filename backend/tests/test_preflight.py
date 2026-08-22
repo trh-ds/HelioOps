@@ -18,10 +18,19 @@ import shutil
 import time
 from pathlib import Path
 
-from backend import middleware
+from unittest import mock
+
+from backend import middleware, preflight
 from backend.cv.storm_event_generator.detect import STORM_CONFIGS
 from backend.paths import BACKEND_DIR
-from backend.preflight import _cache_findings, _conflict_findings, run_preflight
+from backend.preflight import (
+    _cache_findings,
+    _conflict_findings,
+    _parse_ts,
+    _stale_epoch,
+    health_snapshot,
+    run_preflight,
+)
 
 STORM = "2024-10-G4"
 CFG = STORM_CONFIGS[STORM]
@@ -198,3 +207,150 @@ class TestRunPreflight:
         blocks = [f for f in result["findings"] if f["severity"] == "block"]
         assert result["ready"] is False
         assert _ids(blocks) == ["rate_limited"]
+
+
+STORM_DT = _parse_ts(CFG["storm_date"])
+
+
+def _rows(path: Path, time_tag: str) -> Path:
+    """A minimal NOAA-shaped JSON array cache stamped at time_tag."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps([{"time_tag": time_tag, "flux": 1e-6}]))
+    return path
+
+
+class TestStaleEpoch:
+    """
+    NOAA's rtsw/xrays feeds are real-time only, so a cache named for a 2024
+    storm can quietly hold the day it was fetched. That has to be caught
+    before any physics rule reads it.
+    """
+
+    def test_wrong_epoch_fires(self, tmp_path):
+        p = _rows(tmp_path / "l1.json", "2026-08-22T10:53:00")
+        f = _stale_epoch("l1_cache_stale_epoch", "L1", p, STORM_DT, "hint")
+        assert f is not None
+        assert f["severity"] == "warn"
+        assert "2026-08-22" in f["detail"]
+
+    def test_storm_epoch_silent(self, tmp_path):
+        p = _rows(tmp_path / "l1.json", "2024-10-11T00:00:00")
+        assert _stale_epoch("x", "L1", p, STORM_DT, "hint") is None
+
+    def test_missing_file_silent(self, tmp_path):
+        assert _stale_epoch("x", "L1", tmp_path / "nope.json", STORM_DT, "h") is None
+
+    def test_unparseable_silent(self, tmp_path):
+        p = tmp_path / "l1.json"
+        p.write_text("not json")
+        assert _stale_epoch("x", "L1", p, STORM_DT, "hint") is None
+
+    def test_stale_source_is_withheld_from_the_rules(self, tmp_path):
+        # A wrong-epoch cache must be reported AND kept out of the physics
+        # rules: otherwise a date-range error reads as two instruments
+        # disagreeing about the storm. Fixture rather than the shipped caches,
+        # so this holds whether or not rtsw/xrays snapshots are committed.
+        _seed_stub(tmp_path)
+        _rows(tmp_path / CFG["l1_cache"], "2026-08-22T10:53:00")
+        _rows(tmp_path / CFG["flare_cache"], "2026-08-21T10:58:00")
+
+        findings, _stub, _cme, flare, l1 = _cache_findings(CFG, tmp_path)
+        ids = _ids(findings)
+        assert "l1_cache_stale_epoch" in ids
+        assert "flare_cache_stale_epoch" in ids
+        assert l1 is None
+        assert flare is None
+
+
+class TestStubDonkiRules:
+    """
+    DONKI is the only external source that can serve a 2024 date, so stub-vs-
+    DONKI is the one cross-source comparison that runs on a fresh clone.
+    """
+
+    def test_speed_far_off_fires(self):
+        stub = _stub()
+        stub["cme"]["speed_km_s"] = 2200
+        f = _conflict_findings(stub, {"speed_km_s": 1332.0}, None, None)
+        assert "stub_donki_speed_mismatch" in _ids(f)
+
+    def test_speed_within_analysis_spread_silent(self):
+        stub = _stub()
+        stub["cme"]["speed_km_s"] = 1480
+        f = _conflict_findings(stub, {"speed_km_s": 1323.0}, None, None)
+        assert "stub_donki_speed_mismatch" not in _ids(f)
+
+    def test_missing_donki_skips_rule(self):
+        f = _conflict_findings(_stub(), None, None, None)
+        assert "stub_donki_speed_mismatch" not in _ids(f)
+
+    def test_arrival_gap_fires(self):
+        stub = _stub()
+        stub["cme"]["arrival_estimate"] = "2024-10-11T18:00:00Z"
+        cme = {"speed_km_s": 1480.0, "arrival_estimate": "2024-10-12T18:00:00Z"}
+        assert "stub_donki_arrival_mismatch" in _ids(
+            _conflict_findings(stub, cme, None, None))
+
+    def test_arrival_within_ballistic_error_silent(self):
+        stub = _stub()
+        stub["cme"]["arrival_estimate"] = "2024-10-11T18:00:00Z"
+        cme = {"speed_km_s": 1480.0, "arrival_estimate": "2024-10-11T16:13:00Z"}
+        assert "stub_donki_arrival_mismatch" not in _ids(
+            _conflict_findings(stub, cme, None, None))
+
+
+class TestStubReplayDemotion:
+    """
+    detect() returns the stub wholesale when no frames exist, so it never
+    reads these sources; a conflict between them cannot change the output.
+    """
+
+    def _fired(self, stub_replay):
+        stub = _stub()
+        stub["cme"]["speed_km_s"] = 2200
+        return _conflict_findings(stub, {"speed_km_s": 1332.0}, None, None,
+                                  stub_replay)
+
+    def test_warn_when_frames_would_be_used(self):
+        assert self._fired(False)[0]["severity"] == "warn"
+
+    def test_demoted_and_annotated_under_stub_replay(self):
+        f = self._fired(True)[0]
+        assert f["severity"] == "info"
+        assert "never read" in f["detail"]
+
+
+class TestHealthSnapshot:
+    """The probe loads 6 checkpoints and counts Chroma: ~10s cold, and it
+    writes to the Chroma store. The Run gate must not pay that per click."""
+
+    def setup_method(self):
+        preflight._health_cache = None
+
+    def teardown_method(self):
+        preflight._health_cache = None
+
+    def test_second_call_reuses_cache(self):
+        calls = []
+
+        def _run():
+            calls.append(1)
+            return {"detection": True}
+
+        with mock.patch.object(preflight.health_collector, "run", _run):
+            first = health_snapshot()
+            second = health_snapshot()
+        assert first == second == {"detection": True}
+        assert len(calls) == 1
+
+    def test_force_repeats_the_probe(self):
+        calls = []
+
+        def _run():
+            calls.append(1)
+            return {"detection": True}
+
+        with mock.patch.object(preflight.health_collector, "run", _run):
+            health_snapshot()
+            health_snapshot(force=True)
+        assert len(calls) == 2

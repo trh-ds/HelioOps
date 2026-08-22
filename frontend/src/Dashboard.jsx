@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageShell from './PageShell.jsx'
 import { getHealth, getPreflight, getResult, getStorms, runPipeline, streamPipeline } from './api.js'
+// toneOf is already taken below by the stream-event colouring.
+import { SEVERITIES, gateDecision, toneOf as severityTone } from './preflight.js'
 import './dashboard.css'
 
 /* The operator-facing surface for the advisory layer.
@@ -211,11 +213,15 @@ function AdvisoryCard({ advisory, verified }) {
 
 /* ---------- Pre-flight ---------- */
 
-const PREFLIGHT_TONE = { block: 'bad', warn: 'warn', info: 'info' }
+/* Progressive disclosure before the 65-80s commit.
 
-/* Progressive disclosure before the 65-80s commit: a one-line summary always,
-   the individual findings only behind <details>. Never hard-blocks — even a
-   `block` finding leaves "Run anyway" enabled; its detail explains the 429. */
+   Layer 1 states the single most important consequence as one plain sentence
+   (a count of warnings is a tally, not information — the sentence is what
+   decides the click). Layer 2, behind <details>, carries the evidence.
+
+   Never hard-blocks: even a `block` finding leaves the run available, and its
+   detail explains the 429 that will follow. One button label, always the same
+   word — "Run" vs "Run anyway" both ran, which only read as ambiguity. */
 function PreflightPanel({ gate, onConfirm, onCancel }) {
   if (gate.phase === 'loading') {
     return (
@@ -226,42 +232,44 @@ function PreflightPanel({ gate, onConfirm, onCancel }) {
     )
   }
 
-  const { findings, estimated_duration_s } = gate.data
-  const count = sev => findings.filter(f => f.severity === sev).length
-  const serious = count('block') + count('warn')
+  const { findings, counts, estimate, headline, tone } = gate.decision
 
   return (
     <div className="preflight">
-      <div className="preflight-summary">
+      <div className="preflight-head">
         <span className="col-head">PRE-FLIGHT</span>
-        {['block', 'warn', 'info'].map(
+        {SEVERITIES.map(
           sev =>
-            count(sev) > 0 && (
-              <Pill key={sev} tone={PREFLIGHT_TONE[sev]}>
-                {count(sev)} {sev}
+            counts[sev] > 0 && (
+              <Pill key={sev} tone={severityTone(sev)}>
+                {counts[sev]} {sev}
               </Pill>
             )
         )}
-        {findings.length === 0 && <Pill tone="ok">no findings</Pill>}
-        <span className="muted small">est ~{estimated_duration_s}s</span>
-        <span className="preflight-actions">
-          <button className="btn btn-primary" onClick={onConfirm}>
-            {serious > 0 ? 'Run anyway' : 'Run'}
-          </button>
-          <button className="btn" onClick={onCancel}>
-            Cancel
-          </button>
-        </span>
+        {findings.length === 0 && <Pill tone="ok">clear</Pill>}
+        {estimate != null && <span className="muted small">est ~{estimate}s</span>}
       </div>
+
+      <p className={`preflight-headline tone-${tone}`}>{headline}</p>
+
+      <div className="preflight-actions">
+        <button className="btn btn-primary" onClick={onConfirm}>
+          Start run
+        </button>
+        <button className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+
       {findings.length > 0 && (
         <details className="preflight-findings">
           <summary className="small muted">
-            show {findings.length} finding{findings.length === 1 ? '' : 's'}
+            show all {findings.length} finding{findings.length === 1 ? '' : 's'}
           </summary>
           <ul>
             {findings.map(f => (
               <li key={f.id}>
-                <Pill tone={PREFLIGHT_TONE[f.severity] ?? 'info'}>{f.severity}</Pill>{' '}
+                <Pill tone={severityTone(f.severity)}>{f.severity}</Pill>{' '}
                 <span className="preflight-title">{f.title}</span>
                 <div className="muted small">{f.detail}</div>
               </li>
@@ -359,7 +367,15 @@ export default function Dashboard() {
       if (!stormId || busy || gate) return
       setGate({ phase: 'loading', runner })
       getPreflight(stormId)
-        .then(data => setGate({ phase: 'confirm', runner, data }))
+        .then(data => {
+          const decision = gateDecision(data)
+          if (decision.action === 'run') {
+            setGate(null)
+            startRunner(runner)
+          } else {
+            setGate({ phase: 'confirm', runner, decision })
+          }
+        })
         .catch(() => {
           setGate(null)
           startRunner(runner)

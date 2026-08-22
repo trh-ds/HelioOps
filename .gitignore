@@ -9,6 +9,16 @@ backend/data/cached/*/*/raw/
 backend/data/cached/*/*/png/
 backend/data/cached/*/*/diff/
 
+# rtsw (L1) and xrays (GOES) are REAL-TIME endpoints with no date parameter, so
+# these snapshots hold the day they were fetched, not the 2024 storm they are
+# named for - ~8MB that preflight can only ever report as unusable. Regenerate:
+#   python -m backend.cv.data_ingestion.l1_client       --prefetch --storm 2024-10-G4
+#   python -m backend.cv.data_ingestion.flare_classifier --prefetch --storm 2024-10-G4
+# donki/ IS committed by contrast: DONKI serves real 2024 records and is what
+# drives the stub-vs-DONKI conflict rule on a fresh clone.
+backend/data/cached/l1/
+backend/data/cached/xrs/
+
 # ML artifacts
 *.pt
 *.pth

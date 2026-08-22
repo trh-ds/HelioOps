@@ -20,8 +20,10 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 
 from backend.config import settings
 from backend.logging import setup_logging, get_logger
@@ -57,10 +59,27 @@ from backend.pipeline import (
     stream_full_pipeline,
 )
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """
+    The Run gate calls /api/preflight on every click, and its health section
+    loads the six ML checkpoints and counts every Chroma collection: ~10s cold.
+    Pay it once at boot so no user ever waits for it.
+    """
+    from backend.preflight import health_snapshot
+
+    try:
+        await asyncio.to_thread(health_snapshot, True)
+    except Exception as exc:  # a warm-up must never stop the app from serving
+        log.warning("preflight health warm-up skipped: %s", exc)
+    yield
+
+
 app = FastAPI(
     title="HelioOps API",
     description="Space weather detection → impact prediction → advisory generation → verification",
     version="0.1.0",
+    lifespan=_lifespan,
 )
 
 app.add_middleware(

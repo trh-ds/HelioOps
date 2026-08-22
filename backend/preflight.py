@@ -5,15 +5,23 @@ Predicts, without running the pipeline, which fallbacks a run will hit,
 which cached data sources physically disagree, and whether the system or
 Groq quota is degraded. Served by GET /api/preflight/{storm_id}.
 
-Hard rule: this module never fetches, never writes, never mkdirs. Every
+Hard rule for the STORM CACHES: never fetch, never write, never mkdir. Every
 cache file is stat'ed before any parser touches it, because the ingestion
 clients are cache-first-then-NETWORK and create directories on entry.
+
+That is a claim about the storm caches only, not whole-module purity.
+_system_findings() calls the health collector, which loads the six ML
+checkpoints and counts every Chroma collection - and Chroma rewrites its own
+segment files even on a pure read. The result is TTL-cached here and warmed
+at app startup, so a user's first click does not pay ~10s of model loading
+and repeat clicks do not re-touch the store.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,6 +34,10 @@ log = logging.getLogger(__name__)
 
 DEFAULT_DURATION_S = 70
 TPM_LOW_THRESHOLD = 4000  # ~one full advisory pass
+STALE_EPOCH_DAYS = 7      # beyond this a cache cannot describe the storm
+STUB_DONKI_SPEED_TOL = 0.25   # DONKI's own analyses spread 10-20%; beyond that is disagreement
+ARRIVAL_TOL_H = 12.0          # ballistic arrival estimates carry ~10h MAE
+HEALTH_TTL_S = 30         # health probe loads models + counts Chroma; don't repeat it
 
 _CHECK_CONSEQUENCE = {
     "detection": "Detection layer unavailable - the run will fail.",
@@ -37,6 +49,48 @@ _CHECK_CONSEQUENCE = {
 
 def _finding(fid: str, severity: str, title: str, detail: str) -> dict:
     return {"id": fid, "severity": severity, "title": title, "detail": detail}
+
+
+def _first_timestamp(path: Path) -> datetime | None:
+    """First time_tag in a NOAA JSON-array cache, or None if unreadable."""
+    try:
+        rows = json.loads(path.read_text())
+    except Exception:
+        return None
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if isinstance(row, dict) and row.get("time_tag"):
+            return _parse_ts(row["time_tag"])
+    return None
+
+
+def _stale_epoch(fid: str, label: str, path: Path, storm_dt: datetime | None,
+                 hint: str) -> dict | None:
+    """
+    NOAA's rtsw (L1) and xrays (GOES) endpoints are REAL-TIME only - no date
+    parameter - so a cache named for a 2024 storm actually holds whatever was
+    current when it was fetched. Comparing that against the storm produces
+    physics findings that are really just a wrong date range, so the caller
+    drops the source from the cross-source rules instead.
+    """
+    if storm_dt is None:
+        return None
+    ts = _first_timestamp(path)
+    if ts is None:
+        return None
+    gap_days = abs((ts - storm_dt).days)
+    if gap_days <= STALE_EPOCH_DAYS:
+        return None
+    return _finding(
+        fid, "warn",
+        f"{label} readings are from the wrong dates",
+        f"This cache holds data starting {ts:%Y-%m-%d}, {gap_days} days away "
+        f"from the {storm_dt:%Y-%m-%d} storm, so it does not describe this "
+        f"event at all. {hint} Cross-source physics checks against this source "
+        "are skipped - running them would report a date-range error dressed up "
+        "as a disagreement between instruments.",
+    )
 
 
 # ── Cache existence + parsing ───────────────────────────────────────────────
@@ -57,7 +111,7 @@ def _cache_findings(cfg: dict, base: Path):
     if not have_frames:
         findings.append(_finding(
             "cv_stub_replay", "warn",
-            "Detection will replay the committed stub",
+            "Results will replay canned data, not this storm's imagery",
             f"No preprocessed frames under {cfg['png_dir']}/png + /diff. "
             "detect() returns the stub StormEvent wholesale - the DONKI, flare, "
             "L1 and alert caches below will not even be read. Run cache_fits + "
@@ -148,6 +202,28 @@ def _cache_findings(cfg: dict, base: Path):
             "The run proceeds with an empty alert text block.",
         ))
 
+    # Epoch check LAST, so it can veto sources the rules would otherwise use.
+    storm_dt = _parse_ts(cfg["storm_date"])
+
+    l1_stale = _stale_epoch(
+        "l1_cache_stale_epoch", "DSCOVR L1 solar wind", l1_path, storm_dt,
+        "DSCOVR's rtsw feed serves only the last few days, so a 2024 replay "
+        "storm cannot be fetched from it at all.",
+    )
+    if l1_stale:
+        findings.append(l1_stale)
+        l1 = None
+
+    flare_stale = _stale_epoch(
+        "flare_cache_stale_epoch", "GOES XRS flare", flare_path, storm_dt,
+        "The GOES xrays feed serves only the last few days. This is also why "
+        "the classifier reports no flare: nothing in the file falls inside the "
+        "storm window, so the peak search finds nothing.",
+    )
+    if flare_stale:
+        findings.append(flare_stale)
+        flare = None
+
     return findings, stub, cme, flare, l1
 
 
@@ -162,8 +238,41 @@ def _parse_ts(value: str) -> datetime | None:
 
 
 def _conflict_findings(stub: dict, cme: dict | None, flare: dict | None,
-                       l1: dict | None) -> list[dict]:
+                       l1: dict | None, stub_replay: bool = False) -> list[dict]:
     findings: list[dict] = []
+
+    # Reference stub vs DONKI. DONKI is the only external source that can
+    # actually serve a 2024 date (rtsw and xrays are real-time only), so this
+    # is the one cross-source check that runs on a fresh clone.
+    stub_cme = stub.get("cme", {})
+    if cme and stub_cme.get("speed_km_s"):
+        ref = float(stub_cme["speed_km_s"])
+        obs = float(cme["speed_km_s"])
+        if obs and abs(ref - obs) / obs > STUB_DONKI_SPEED_TOL:
+            findings.append(_finding(
+                "stub_donki_speed_mismatch", "warn",
+                f"Reference CME speed is {abs(ref - obs) / obs * 100:.0f}% off "
+                "the DONKI record",
+                f"The committed reference for this storm says {ref:.0f} km/s; "
+                f"DONKI's CME analysis measures {obs:.0f} km/s. DONKI's own "
+                "analyses spread by 10-20%, so a gap this wide means the "
+                "reference severity and the observational record are not "
+                "describing the same event speed.",
+            ))
+
+        ref_dt = _parse_ts(stub_cme.get("arrival_estimate", ""))
+        obs_dt = _parse_ts(cme.get("arrival_estimate", ""))
+        if ref_dt and obs_dt:
+            gap_h = abs((ref_dt - obs_dt).total_seconds()) / 3600.0
+            if gap_h > ARRIVAL_TOL_H:
+                findings.append(_finding(
+                    "stub_donki_arrival_mismatch", "warn",
+                    f"Reference arrival and DONKI arrival are {gap_h:.0f}h apart",
+                    f"The reference expects arrival at {ref_dt:%Y-%m-%d %H:%M}Z, "
+                    f"DONKI's ballistic estimate says {obs_dt:%Y-%m-%d %H:%M}Z. "
+                    "Ballistic estimates carry roughly 10h of error, so a gap "
+                    "beyond that is a real disagreement rather than model noise.",
+                ))
 
     if cme and l1:
         launch, arrive = cme["speed_km_s"], l1["speed_km_s"]
@@ -227,14 +336,46 @@ def _conflict_findings(stub: dict, cme: dict | None, flare: dict | None,
                 "the reference severity for this storm.",
             ))
 
+    # detect() returns the stub wholesale at detect.py:133 when no frames
+    # exist, so it never reads these sources. Reporting them as warnings would
+    # inflate the count and flip the button for something that cannot change
+    # the result. Keep them visible, drop them to info, say why.
+    if stub_replay:
+        for f in findings:
+            f["severity"] = "info"
+            f["detail"] += (
+                " Detection is replaying the stub for this run, so this source "
+                "is never read and the disagreement cannot affect the output."
+            )
+
     return findings
 
 
 # ── System + quota state ────────────────────────────────────────────────────
 
+_health_cache: tuple[float, dict] | None = None
+
+
+def health_snapshot(force: bool = False) -> dict:
+    """
+    TTL-cached health probe. The checks behind it load six LightGBM
+    checkpoints and count every Chroma collection: ~10s cold, and Chroma
+    rewrites its segment files even on a read. The Run gate calls preflight on
+    every click, so paying that per click would make the panel meant to save
+    the user 80s cost them 10. app.py warms this once at startup (force=True).
+    """
+    global _health_cache
+    now = time.time()
+    if not force and _health_cache and now - _health_cache[0] < HEALTH_TTL_S:
+        return _health_cache[1]
+    checks = health_collector.run()
+    _health_cache = (now, checks)
+    return checks
+
+
 def _system_findings() -> list[dict]:
     findings = []
-    for name, ok in health_collector.run().items():
+    for name, ok in health_snapshot().items():
         if not ok:
             findings.append(_finding(
                 f"check_{name}_degraded", "warn",
@@ -306,7 +447,8 @@ async def run_preflight(storm_id: str, base_dir: Path | None = None) -> dict:
     findings = list(await _quota_findings(storm_id))
     cache_findings, stub, cme, flare, l1 = _cache_findings(cfg, base)
     findings += cache_findings
-    findings += _conflict_findings(stub, cme, flare, l1)
+    stub_replay = any(f["id"] == "cv_stub_replay" for f in cache_findings)
+    findings += _conflict_findings(stub, cme, flare, l1, stub_replay)
     findings += _system_findings()
 
     return {

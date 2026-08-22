@@ -64,10 +64,15 @@ python backend/ml/03_anchor_test.py            # physics gate; exits non-zero on
   impact_matrix 166, grid 101). Confirmed live through retrieval, not just sqlite.
 - frontend/ is a marketing SPA (hardcoded copy in src/data.js) PLUS a live console:
   src/Dashboard.jsx drives src/api.js against /api/detect, /api/result and /ws/stream.
-- 2026-08-22: pre-flight conflict check shipped — GET /api/preflight/{storm_id}
-  predicts fallbacks/conflicts/quota before a run; Dashboard gates Run behind a
-  confirm panel (summary + expandable findings, Run anyway / Cancel). Never
-  hard-blocks; preflight failure starts the run directly.
+- 2026-08-22: pre-flight conflict check shipped and then corrected after review —
+  GET /api/preflight/{storm_id} predicts fallbacks/conflicts/quota before a run;
+  Dashboard gates Run behind a confirm panel (headline sentence + severity pills,
+  evidence behind <details>, one button label "Start run"). Never hard-blocks;
+  preflight failure starts the run directly. The DONKI caches are now COMMITTED (44 KB,
+  real 2024 records), so `stub_donki_speed_mismatch` fires on a fresh clone for G5 (65%
+  drift) and stays silent for G4 (12%). l1/ and xrs/ are gitignored: they are real-time
+  snapshots of the wrong epoch, ~8 MB preflight can only report as unusable. 284 backend
+  tests + 2 frontend test groups green; pipeline verified live (4 advisories, 0 errors).
 - Flaky: `tests/test_retrieval.py` intermittently fails with a chromadb
   InternalError under full-suite ordering; passes when run alone. Not CV-related.
 
@@ -108,8 +113,9 @@ backend/app.py                         — FastAPI: /api/detect, /api/storms, /w
 backend/pipeline.py                    — adapter-driven 5-stage orchestration;
                                          owns the adapter singletons
 backend/health.py                      — /health, /health/ready probes, /metrics counters
-backend/preflight.py                   — run_preflight(): read-only pre-run conflict check
-                                         (GET /api/preflight/{id}); stat-first, never fetches/mkdirs
+backend/preflight.py                   — run_preflight(): pre-run conflict check
+                                         (GET /api/preflight/{id}); stat-first on the storm
+                                         caches; health_snapshot() TTL-caches the probe
 backend/paths.py                       — BACKEND_DIR/DATA_DIR/CHROMA_DIR/STUBS_DIR/CHECKPOINT_DIR
 backend/__init__.py                    — loads .env for every entry point
 backend/genai/llm.py                   — the only Groq call (complete_json)
@@ -181,6 +187,29 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
   helper made every degraded state render as "unreachable" with no check pills.
 - `check_rate_limit()` MUTATES on read (records the call). Preflight and anything
   else read-only must use `peek_rate_limit()` instead.
+- `run_preflight()` is read-only for the STORM CACHES only - it is not write-free
+  overall. `_system_findings()` calls `health_collector.run()`, whose `_check_ml` loads
+  the 6 LightGBM pkls and `_check_knowledge_base` counts every Chroma collection - and
+  Chroma rewrites its own segment files (11 git-tracked files incl. chroma.sqlite3) even
+  on a pure read. Cold cost was ~9.7s. Now TTL-cached (`HEALTH_TTL_S`, 30s) and warmed
+  once in app.py's lifespan; a live first click measures 0.31s. Never restore a per-call
+  `health_collector.run()` - that puts both the latency and the writes back on every click.
+- NOAA's rtsw (L1) and xrays (GOES) endpoints are REAL-TIME ONLY - no date parameter - so
+  `data/cached/l1/2024-*.json` and `data/cached/xrs/2024-*.json` hold whatever was current
+  when they were prefetched, NOT the storm. DONKI is the only external source that serves
+  2024. This is also why `fetch_and_classify_flare` reports C-class/R0 for two X-class
+  storms: nothing in the file falls inside the +-6h storm window, so the peak search finds
+  nothing. Preflight detects this (`l1_cache_stale_epoch`, `flare_cache_stale_epoch`) and
+  withholds those sources from the cross-source rules, rather than reporting a wrong date
+  range as a disagreement between instruments.
+- Because of the above, every conflict rule needing L1 or flare is unreachable for the two
+  replay storms. `stub_donki_speed_mismatch` / `stub_donki_arrival_mismatch` are the pair
+  that DOES run on a fresh clone (committed stub vs real 2024 DONKI): G5 fires at 65% drift
+  (stub 2200 vs DONKI 1332 km/s), G4 stays silent at 12%. That difference is the only thing
+  stopping the panel from being identical on every run.
+- Conflict findings are demoted warn->info when `cv_stub_replay` fires: `detect()` returns
+  the stub at detect.py:133 before Step 3 ever reads DONKI/flare/L1, so a disagreement
+  between them cannot change the output. Don't re-promote them without shipping frames.
 - The advisory field is `sources_cited`, NOT `citations`. Any RAG-liveness check
   grepping for `citations` reports a false failure.
 - `/api/detect` takes 65-80s end to end, not the 8-15s once documented. Groq's
@@ -225,6 +254,8 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
   Pinned by `TestStreamEventContract`.
 
 ## Decisions Log
+2026-08-22 - Preflight verification sweep found the "read-only" guarantee is false and the conflict rules are unreachable in the shipped repo - the feature is architecturally sound and scoped right, but its headline capability cannot be observed by anyone who clones it, and its central invariant is documented wrong. Recorded as gotchas rather than fixed, pending the owner's call.
+
 2026-08-22 — Deleted the real-data ML track outright rather than parking it — it was blocked on labels that no public dataset supplies in the required form (IONEX / GOES XRS+SEP), and a scaffolded pipeline that cannot be trained is indistinguishable in the tree from one that can. 296 MB and ~1,500 lines gone; the design notes survive in git history.
 2026-08-22 — Training scripts resolve paths from backend.paths, not cwd — they used bare `data/` and `checkpoints/`, so README's documented `PYTHONPATH=. python backend/ml/02_train_and_tune.py` looked for a repo-root `data/` that never existed. Same bug class as the chroma path.
 2026-08-22 — 03_anchor_test.py exits non-zero and goes through inference.predict() — it caught its own AssertionError and exited 0, so the physics gate could not gate anything; loading the pkls directly would also have let training/serving skew pass unnoticed. It now tests a quiet baseline too, since a constant model passes any single-storm floor.
@@ -252,8 +283,9 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
 2026-08-22 — Free Space keeps its *.hf.space hostname — custom domains are Pro-only; the API URL lives in VITE_API_URL, so no user ever types it and a Cloudflare Worker proxy is unnecessary until api.heliops.dpdns.org is actually wanted.
 
 ## Changelog
+2026-08-22 | Fix the pre-flight feature after LLM-council review: make the conflict rules actually reachable, correct the false read-only claim, kill the 9.7s cold click, rebuild the disclosure layer | backend/{preflight,app}.py, backend/tests/test_preflight.py, backend/data/cached/donki/*, .gitignore, frontend/src/{preflight.js,Dashboard.jsx,dashboard.css,data.test.mjs} | Ship the DONKI cache (real 2024, 44 KB) instead of the claim - the rules were correct but unreachable, so the capability existed only in unit tests; l1/xrs stay ignored because committing 8 MB of wrong-epoch data to trigger a warning about wrong-epoch data is circular. Also: never assert an invariant a test does not check - "never writes" was false the day it was written
 2026-08-22 | Rewrite the root README as the judge-facing entry point; bring every other .md into step with the code | README.md, context.md (full rewrite), docs/TECHNICAL_DEEP_DIVE.md, docs/PRODUCT_BRIEF.md, docs/qna.md, docs/CV_ML_QNA.md, docs/DEPLOYMENT.md, REFACTOR_MAP.md, HELIOOPS_TEST_REPORT.md | The docs described the pre-refactor repo: Next.js frontend, k8s/Terraform/ArgoCD/chaos, ML_after_CV/, an abstract ports/ layer, AgentScope over LangGraph, telecom_kb=0, PICP 96.4/94.8, 8-15s latency, CI ending in `|| true`. A judge reading those against this tree finds a repo that overstates itself, which costs more credibility than any single gap. REFACTOR_MAP.md and HELIOOPS_TEST_REPORT.md were marked HISTORICAL rather than rewritten - a change record and a dated snapshot lose their whole value if edited to match today
-2026-08-22 | Pre-flight conflict check + progressive-disclosure run gate | backend/{preflight,middleware,app}.py, backend/tests/{test_preflight,test_api_endpoints}.py, frontend/src/{api.js,Dashboard.jsx,dashboard.css} | Preflight is stat-first read-only (clients fetch+mkdir on miss); conflicts computed with the same parsers the run uses; UI warns but never hard-blocks
+2026-08-22 | Pre-flight conflict check + progressive-disclosure run gate | backend/{preflight,middleware,app}.py, backend/tests/{test_preflight,test_api_endpoints}.py, frontend/src/{api.js,Dashboard.jsx,dashboard.css,preflight.js} | Preflight is stat-first read-only (clients fetch+mkdir on miss); conflicts computed with the same parsers the run uses; UI warns but never hard-blocks
 2026-08-22 | Delete the real-data ML track and HPO pods; make the synthetic pipeline actually runnable; scrub the docs | backend/ml/** (7 deletions), backend/paths.py, backend/__init__.py, backend/tests/test_runtime_paths.py, .gitignore, .dockerignore, README.md, docs/CV_ML_QNA.md, docs/HOW_TO_DEPLOY_BACKEND.md | One ML pipeline in the tree, not two — the deleted one could never be trained, and its presence made the repo overstate itself
 2026-08-22 | Fix silent RAG death (chroma path), lock synthetic ML as the serving layer, make backend HF-deployable | backend/embeddings/config.py, backend/health.py, backend/ml/inference.py, backend/config.py, backend/tests/test_runtime_paths.py, Dockerfile, README.md, .dockerignore, docs/HOW_TO_DEPLOY_BACKEND.md | Readiness must assert the KB holds chunks, not that genai imports — an import probe cannot see an empty DB, which is the exact failure that shipped
 2026-08-22 | Judge-facing CV+ML Q&A doc (58 Q, 13 sections, glossary, hostile questions) | docs/CV_ML_QNA.md, AGENTS.md | State shipped-vs-designed explicitly: shipped = 6 LightGBM models on 4,800 synthetic rows; designed = a real-data track blocked on labels (since deleted, see 2026-08-22). Hiding it loses more credibility than admitting it
