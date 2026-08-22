@@ -26,8 +26,11 @@ const json = async (path, init) => {
   return res.json()
 }
 
-export const getHealth = () => json('/health/ready')
+/* /health/ready answers 503 with the same body shape when degraded — parse
+   unconditionally so the per-check pills render instead of "unreachable". */
+export const getHealth = async () => (await fetch(BASE + '/health/ready')).json()
 export const getStorms = () => json('/api/storms')
+export const getPreflight = stormId => json(`/api/preflight/${encodeURIComponent(stormId)}`)
 export const getResult = stormId => json(`/api/result/${encodeURIComponent(stormId)}`)
 export const getAdvisory = id => json(`/api/advisory/${encodeURIComponent(id)}`)
 

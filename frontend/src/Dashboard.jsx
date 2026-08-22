@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageShell from './PageShell.jsx'
-import { getHealth, getResult, getStorms, runPipeline, streamPipeline } from './api.js'
+import { getHealth, getPreflight, getResult, getStorms, runPipeline, streamPipeline } from './api.js'
 import './dashboard.css'
 
 /* The operator-facing surface for the advisory layer.
@@ -209,6 +209,70 @@ function AdvisoryCard({ advisory, verified }) {
   )
 }
 
+/* ---------- Pre-flight ---------- */
+
+const PREFLIGHT_TONE = { block: 'bad', warn: 'warn', info: 'info' }
+
+/* Progressive disclosure before the 65-80s commit: a one-line summary always,
+   the individual findings only behind <details>. Never hard-blocks — even a
+   `block` finding leaves "Run anyway" enabled; its detail explains the 429. */
+function PreflightPanel({ gate, onConfirm, onCancel }) {
+  if (gate.phase === 'loading') {
+    return (
+      <div className="preflight">
+        <span className="col-head">PRE-FLIGHT</span>
+        <span className="muted small">checking cached inputs, conflicts and quota…</span>
+      </div>
+    )
+  }
+
+  const { findings, estimated_duration_s } = gate.data
+  const count = sev => findings.filter(f => f.severity === sev).length
+  const serious = count('block') + count('warn')
+
+  return (
+    <div className="preflight">
+      <div className="preflight-summary">
+        <span className="col-head">PRE-FLIGHT</span>
+        {['block', 'warn', 'info'].map(
+          sev =>
+            count(sev) > 0 && (
+              <Pill key={sev} tone={PREFLIGHT_TONE[sev]}>
+                {count(sev)} {sev}
+              </Pill>
+            )
+        )}
+        {findings.length === 0 && <Pill tone="ok">no findings</Pill>}
+        <span className="muted small">est ~{estimated_duration_s}s</span>
+        <span className="preflight-actions">
+          <button className="btn btn-primary" onClick={onConfirm}>
+            {serious > 0 ? 'Run anyway' : 'Run'}
+          </button>
+          <button className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+        </span>
+      </div>
+      {findings.length > 0 && (
+        <details className="preflight-findings">
+          <summary className="small muted">
+            show {findings.length} finding{findings.length === 1 ? '' : 's'}
+          </summary>
+          <ul>
+            {findings.map(f => (
+              <li key={f.id}>
+                <Pill tone={PREFLIGHT_TONE[f.severity] ?? 'info'}>{f.severity}</Pill>{' '}
+                <span className="preflight-title">{f.title}</span>
+                <div className="muted small">{f.detail}</div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
+}
+
 /* ---------- Page ---------- */
 
 export default function Dashboard() {
@@ -219,6 +283,8 @@ export default function Dashboard() {
   const [result, setResult] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  // Pre-flight gate: null | {phase:'loading'|'confirm', runner:'live'|'batch', data?}
+  const [gate, setGate] = useState(null)
   const closeRef = useRef(null)
 
   useEffect(() => {
@@ -242,7 +308,7 @@ export default function Dashboard() {
 
   useEffect(() => () => closeRef.current?.(), [])
 
-  const runLive = useCallback(() => {
+  const startLive = useCallback(() => {
     if (!stormId || busy) return
     setBusy(true)
     setError(null)
@@ -267,7 +333,7 @@ export default function Dashboard() {
     })
   }, [stormId, busy])
 
-  const runBatch = useCallback(async () => {
+  const startBatch = useCallback(async () => {
     if (!stormId || busy) return
     setBusy(true)
     setError(null)
@@ -280,6 +346,33 @@ export default function Dashboard() {
       setBusy(false)
     }
   }, [stormId, busy])
+
+  const startRunner = useCallback(
+    runner => (runner === 'live' ? startLive() : startBatch()),
+    [startLive, startBatch]
+  )
+
+  // Every run goes through the gate: preflight first, confirm, then start.
+  // If preflight itself fails, start directly — the gate never breaks the demo.
+  const requestRun = useCallback(
+    runner => {
+      if (!stormId || busy || gate) return
+      setGate({ phase: 'loading', runner })
+      getPreflight(stormId)
+        .then(data => setGate({ phase: 'confirm', runner, data }))
+        .catch(() => {
+          setGate(null)
+          startRunner(runner)
+        })
+    },
+    [stormId, busy, gate, startRunner]
+  )
+
+  const confirmGate = useCallback(() => {
+    const runner = gate?.runner
+    setGate(null)
+    if (runner) startRunner(runner)
+  }, [gate, startRunner])
 
   const advisories = result?.advisories ?? []
   const verifiedById = Object.fromEntries(
@@ -299,7 +392,11 @@ export default function Dashboard() {
         <div className="dash-controls">
           <label className="ctl">
             <span className="col-head">STORM</span>
-            <select value={stormId} onChange={e => setStormId(e.target.value)} disabled={busy}>
+            <select
+              value={stormId}
+              onChange={e => setStormId(e.target.value)}
+              disabled={busy || gate != null}
+            >
               {storms.length === 0 && <option value="">(backend unreachable)</option>}
               {storms.map(s => (
                 <option key={s} value={s}>
@@ -309,10 +406,18 @@ export default function Dashboard() {
             </select>
           </label>
 
-          <button className="btn btn-primary" onClick={runLive} disabled={busy || !stormId}>
+          <button
+            className="btn btn-primary"
+            onClick={() => requestRun('live')}
+            disabled={busy || !stormId || gate != null}
+          >
             {busy ? 'Running…' : 'Run live (WebSocket)'}
           </button>
-          <button className="btn" onClick={runBatch} disabled={busy || !stormId}>
+          <button
+            className="btn"
+            onClick={() => requestRun('batch')}
+            disabled={busy || !stormId || gate != null}
+          >
             Run batch (REST)
           </button>
 
@@ -330,6 +435,8 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {gate && <PreflightPanel gate={gate} onConfirm={confirmGate} onCancel={() => setGate(null)} />}
 
         {error && <div className="banner banner-bad">{error}</div>}
 

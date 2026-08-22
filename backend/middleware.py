@@ -76,6 +76,11 @@ def check_rate_limit(storm_id: str) -> bool:
     return True
 
 
+def peek_rate_limit(storm_id: str) -> float:
+    """Seconds until the next run is allowed. 0 = allowed now. Does not record."""
+    return max(0.0, RATE_LIMIT_SECONDS - (time.time() - _pipeline_calls.get(storm_id, 0)))
+
+
 # ── Storm ID Validation ────────────────────────────────────────────────────
 
 STORM_ID_PATTERN = re.compile(r"^\d{4}-\d{2}-G[1-5]$")

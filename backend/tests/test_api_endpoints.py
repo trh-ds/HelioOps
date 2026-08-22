@@ -102,6 +102,35 @@ class TestDetectEndpoint:
         assert resp.status_code == 404
 
 
+class TestPreflightEndpoint:
+    """GET /api/preflight/{storm_id} — read-only pre-run check."""
+
+    def test_returns_200_with_schema(self):
+        resp = client.get("/api/preflight/2024-10-G4")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert set(data) == {"storm_id", "ready", "estimated_duration_s", "findings"}
+        assert isinstance(data["findings"], list)
+
+    def test_invalid_storm_id_returns_400(self):
+        resp = client.get("/api/preflight/invalid-id")
+        assert resp.status_code == 400
+
+    def test_unknown_storm_id_returns_404(self):
+        resp = client.get("/api/preflight/2099-01-G5")
+        assert resp.status_code == 404
+
+    def test_does_not_consume_rate_limit_slot(self):
+        # Inspect the state dict directly — POSTing detect to verify would run
+        # the real pipeline against live Groq.
+        from backend import middleware
+
+        middleware._pipeline_calls.pop("2024-05-G5", None)
+        resp = client.get("/api/preflight/2024-05-G5")
+        assert resp.status_code == 200
+        assert "2024-05-G5" not in middleware._pipeline_calls
+
+
 class TestResultEndpoint:
     """GET /api/result/{storm_id} — fetch pipeline result."""
 

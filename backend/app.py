@@ -7,6 +7,7 @@ Architecture: Adapter-wrapped layers
 
 Endpoints:
     POST /api/detect/{storm_id}    — run full pipeline
+    GET  /api/preflight/{storm_id} — read-only pre-run conflict check
     GET  /api/storms               — list available + completed storms
     GET  /api/advisory/{id}        — single verified advisory + provenance
     GET  /api/result/{storm_id}    — full pipeline result
@@ -180,6 +181,25 @@ async def detect_storm(storm_id: str):
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {result.errors}")
 
     return result
+
+
+@app.get("/api/preflight/{storm_id}")
+async def preflight_storm(storm_id: str):
+    # Same gates as detect_storm, minus everything that mutates: no
+    # check_rate_limit (it records on read), no record_* counters.
+    if not validate_storm_id(storm_id):
+        raise HTTPException(
+            status_code=400, detail=f"Invalid storm_id format: {storm_id}"
+        )
+    available = _available_storms()
+    if storm_id not in available:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown storm_id '{storm_id}'. Available: {available}",
+        )
+    from backend.preflight import run_preflight
+
+    return await run_preflight(storm_id)
 
 
 @app.get("/api/storms")

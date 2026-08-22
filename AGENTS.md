@@ -64,6 +64,10 @@ python backend/ml/03_anchor_test.py            # physics gate; exits non-zero on
   impact_matrix 166, grid 101). Confirmed live through retrieval, not just sqlite.
 - frontend/ is a marketing SPA (hardcoded copy in src/data.js) PLUS a live console:
   src/Dashboard.jsx drives src/api.js against /api/detect, /api/result and /ws/stream.
+- 2026-08-22: pre-flight conflict check shipped — GET /api/preflight/{storm_id}
+  predicts fallbacks/conflicts/quota before a run; Dashboard gates Run behind a
+  confirm panel (summary + expandable findings, Run anyway / Cancel). Never
+  hard-blocks; preflight failure starts the run directly.
 - Flaky: `tests/test_retrieval.py` intermittently fails with a chromadb
   InternalError under full-suite ordering; passes when run alone. Not CV-related.
 
@@ -104,6 +108,8 @@ backend/app.py                         — FastAPI: /api/detect, /api/storms, /w
 backend/pipeline.py                    — adapter-driven 5-stage orchestration;
                                          owns the adapter singletons
 backend/health.py                      — /health, /health/ready probes, /metrics counters
+backend/preflight.py                   — run_preflight(): read-only pre-run conflict check
+                                         (GET /api/preflight/{id}); stat-first, never fetches/mkdirs
 backend/paths.py                       — BACKEND_DIR/DATA_DIR/CHROMA_DIR/STUBS_DIR/CHECKPOINT_DIR
 backend/__init__.py                    — loads .env for every entry point
 backend/genai/llm.py                   — the only Groq call (complete_json)
@@ -117,6 +123,7 @@ ml/03_anchor_test.py                   — physics gate: G5 floor + quiet baseli
 Dockerfile                             — HF Spaces build (repo root); deployment/Dockerfile.backend is NOT used there
 genai/orchestrator.py                  — RAG advisory generation + verifier + guardrails
 ml/stubs/storm_event_*.json            — deterministic fallback StormEvents
+tests/test_preflight.py                — peek/cache/conflict-rule/e2e preflight coverage
 tests/test_pipeline.py                 — schema adaptation, full pipeline, WS event
                                          contract, standalone-import guard
 tests/test_option_c.py                 — detector geometry, flare/DONKI math, fuse contract
@@ -169,6 +176,11 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
   happily CREATES. Every KB read 0, `retrieve_chunks()` swallowed it, and every
   advisory was ungrounded with nothing logged. It also made 9 of test_retrieval.py
   fail in a way that read as the known chromadb flake. Pinned by test_runtime_paths.py.
+- `/health/ready` answers 503 with the same body as 200 when degraded. Frontend
+  getHealth() must parse unconditionally — routing it through the throwing json()
+  helper made every degraded state render as "unreachable" with no check pills.
+- `check_rate_limit()` MUTATES on read (records the call). Preflight and anything
+  else read-only must use `peek_rate_limit()` instead.
 - The advisory field is `sources_cited`, NOT `citations`. Any RAG-liveness check
   grepping for `citations` reports a false failure.
 - `/api/detect` takes 65-80s end to end, not the 8-15s once documented. Groq's
@@ -240,6 +252,7 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
 2026-08-22 — Free Space keeps its *.hf.space hostname — custom domains are Pro-only; the API URL lives in VITE_API_URL, so no user ever types it and a Cloudflare Worker proxy is unnecessary until api.heliops.dpdns.org is actually wanted.
 
 ## Changelog
+2026-08-22 | Pre-flight conflict check + progressive-disclosure run gate | backend/{preflight,middleware,app}.py, backend/tests/{test_preflight,test_api_endpoints}.py, frontend/src/{api.js,Dashboard.jsx,dashboard.css} | Preflight is stat-first read-only (clients fetch+mkdir on miss); conflicts computed with the same parsers the run uses; UI warns but never hard-blocks
 2026-08-22 | Delete the real-data ML track and HPO pods; make the synthetic pipeline actually runnable; scrub the docs | backend/ml/** (7 deletions), backend/paths.py, backend/__init__.py, backend/tests/test_runtime_paths.py, .gitignore, .dockerignore, README.md, docs/CV_ML_QNA.md, docs/HOW_TO_DEPLOY_BACKEND.md | One ML pipeline in the tree, not two — the deleted one could never be trained, and its presence made the repo overstate itself
 2026-08-22 | Fix silent RAG death (chroma path), lock synthetic ML as the serving layer, make backend HF-deployable | backend/embeddings/config.py, backend/health.py, backend/ml/inference.py, backend/config.py, backend/tests/test_runtime_paths.py, Dockerfile, README.md, .dockerignore, docs/HOW_TO_DEPLOY_BACKEND.md | Readiness must assert the KB holds chunks, not that genai imports — an import probe cannot see an empty DB, which is the exact failure that shipped
 2026-08-22 | Judge-facing CV+ML Q&A doc (58 Q, 13 sections, glossary, hostile questions) | docs/CV_ML_QNA.md, AGENTS.md | State shipped-vs-designed explicitly: shipped = 6 LightGBM models on 4,800 synthetic rows; designed = a real-data track blocked on labels (since deleted, see 2026-08-22). Hiding it loses more credibility than admitting it

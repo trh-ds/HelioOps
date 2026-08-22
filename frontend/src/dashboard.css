@@ -213,3 +213,33 @@
   color: rgba(233, 233, 246, 0.8);
   max-height: 300px;
 }
+
+/* ---------- Pre-flight panel ---------- */
+
+.preflight {
+  border: 1px solid rgba(199, 206, 255, 0.2);
+  background: rgba(7, 6, 15, 0.62);
+  padding: 13px 15px;
+  margin-bottom: 18px;
+}
+.preflight-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.preflight-summary .col-head { margin-bottom: 0; }
+.preflight-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.preflight-findings { margin-top: 10px; }
+.preflight-findings summary { cursor: pointer; }
+.preflight-findings ul {
+  list-style: none;
+  margin: 9px 0 0;
+  padding: 0;
+}
+.preflight-findings li { margin-bottom: 9px; }
+.preflight-title { font-size: 13px; }
