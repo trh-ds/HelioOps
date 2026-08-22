@@ -1,0 +1,19 @@
+# The ChromaDB knowledge base is committed so a fresh clone and the Docker
+# image have working RAG with no setup step. ChromaDB rewrites these files
+# whenever the DB is opened, so they show as modified after any test run even
+# when the contents are identical.
+#
+# Marking them binary keeps that churn out of diffs and stops git attempting a
+# textual merge on a 9.8MB SQLite file.
+#
+# CAUTION: `git checkout -- backend/data/chroma_db` discards *real* ingest
+# results as readily as it discards open-on-read churn, and the two are
+# indistinguishable in `git status`. Always confirm with
+# `python -m backend.embeddings.rebuild_kb --verify` afterwards; if a
+# collection comes back EMPTY or THIN, re-run the ingest.
+backend/data/chroma_db/** binary -diff -merge
+
+# Committed reference documents and model checkpoints — never text-merge.
+*.pdf   binary -diff
+*.pkl   binary -diff
+*.fts   binary -diff
