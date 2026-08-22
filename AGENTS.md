@@ -248,6 +248,12 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
   `from backend.pipeline import PipelineResult` in an adapter closes the loop and makes
   `import backend.pipeline` fail on its own — invisible under the full suite, which
   imports something else first. Pinned by `TestNoCircularImports`.
+- CI has been red since 2026-08-22 on the `Lint` step alone, which blocks the backend
+  `Test` step and the whole `images` job from ever running. Not a code fault:
+  `requirements-dev.txt` pins `ruff>=0.4` and the repo has NO ruff config, so CI gets
+  the newest ruff and its widened default rule set (195 findings: I001, UP045, BLE001,
+  RUF*, S110, SIM*). Local ruff 0.14.10 is clean on the same tree.
+  `ruff check backend/ --select E4,E7,E9,F --ignore=E501,F403,E402` is clean on both.
 - `genai.stream_pipeline()` ends with its own `pipeline.complete`. `stream_full_pipeline`
   re-emits it as `pipeline.stage/advisory_generation/completed`; forwarded raw it would
   collide with the terminal event and the frontend would stop before verification.
