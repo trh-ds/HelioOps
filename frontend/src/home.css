@@ -1,0 +1,540 @@
+/* Layout ported from Home.dc.html. The artboard was a fixed 1440x900 box scaled
+   to fit; here .frame fills the viewport instead. Every HUD element is anchored
+   to an edge of .panel, so they stay put at any window size — only the empty
+   middle stretches.
+
+   Every selector is scoped under .home-stage on purpose: this file uses short
+   generic names (.body, .nav, .panel, .title, .footer) that would otherwise
+   collide with the content pages' stylesheets. */
+
+.home-stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #07060f;
+}
+
+.home-stage .frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #07060f;
+  font-family: 'Chivo', system-ui, sans-serif;
+}
+
+/* ---------- globe + veils ---------- */
+.home-stage .globe-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+.home-stage .globe-layer helio-globe {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.home-stage .veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.home-stage .veil-glow {
+  mix-blend-mode: screen;
+  background: radial-gradient(125% 105% at 50% 48%, rgba(0, 0, 0, 0) 42%, rgba(84, 58, 168, 0.26) 74%, rgba(126, 94, 226, 0.4) 100%);
+}
+.home-stage .veil-vignette {
+  background: radial-gradient(70% 60% at 50% 50%, rgba(0, 0, 0, 0) 40%, rgba(5, 4, 12, 0.55) 100%);
+}
+
+/* ---------- orbit rings ---------- */
+@keyframes helioSpin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to   { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.home-stage .ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  z-index: 2;
+  pointer-events: none;
+}
+.home-stage .ring-solid {
+  width: 530px;
+  height: 530px;
+  border: 1px solid rgba(190, 198, 255, 0.13);
+}
+.home-stage .ring-dashed {
+  width: 672px;
+  height: 672px;
+  border: 1px dashed rgba(190, 198, 255, 0.06);
+  animation: helioSpin 240s linear infinite;
+}
+
+/* ---------- corner ticks ---------- */
+.home-stage .tick {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  z-index: 4;
+  pointer-events: none;
+}
+.home-stage .tick-tl { top: 52px; left: 56px; border-left: 1px solid rgba(243, 171, 92, 0.75); border-top: 1px solid rgba(243, 171, 92, 0.75); }
+.home-stage .tick-tr { top: 52px; right: 56px; border-right: 1px solid rgba(243, 171, 92, 0.75); border-top: 1px solid rgba(243, 171, 92, 0.75); }
+.home-stage .tick-bl { bottom: 52px; left: 56px; border-left: 1px solid rgba(243, 171, 92, 0.75); border-bottom: 1px solid rgba(243, 171, 92, 0.75); }
+.home-stage .tick-br { bottom: 52px; right: 56px; border-right: 1px solid rgba(243, 171, 92, 0.75); border-bottom: 1px solid rgba(243, 171, 92, 0.75); }
+
+/* ---------- HUD panel ---------- */
+/* Butts straight up under the root navbar, which already draws the top edge at
+   the same 56px inset. No 8vh gap here: the HUD inside is anchored to this
+   box's edges and has no vertical slack to give away. */
+.home-stage .panel {
+  position: absolute;
+  top: var(--nav-bottom);
+  left: 56px;
+  right: 56px;
+  bottom: 52px;
+  border: 1px solid rgba(199, 206, 255, 0.13);
+  border-top: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  pointer-events: none;
+}
+
+/* The navbar is mounted at the app root, above .panel — see Nav.jsx. */
+
+/* ---------- body ---------- */
+.home-stage .body {
+  position: relative;
+  padding: 38px 34px 0;
+}
+
+.home-stage .glyphs {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: 'Space Mono', monospace;
+  color: rgba(211, 216, 255, 0.3);
+  font-size: 11px;
+}
+.home-stage .glyphs span { position: absolute; }
+
+.home-stage .caret { position: absolute; width: 16px; height: 16px; }
+.home-stage .caret-1 { left: 34px; top: 34px; border-left: 1px solid rgba(199, 206, 255, 0.5); border-top: 1px solid rgba(199, 206, 255, 0.5); transform: rotate(-45deg); }
+.home-stage .caret-2 { left: 186px; top: 34px; border-right: 1px solid rgba(199, 206, 255, 0.5); border-top: 1px solid rgba(199, 206, 255, 0.5); transform: rotate(45deg); }
+.home-stage .caret-3 { left: 34px; top: 150px; border-left: 1px solid rgba(199, 206, 255, 0.5); border-bottom: 1px solid rgba(199, 206, 255, 0.5); transform: rotate(45deg); }
+
+.home-stage .counter {
+  position: absolute;
+  left: 56px;
+  top: 46px;
+  display: flex;
+  align-items: flex-end;
+  font-family: 'Archivo Narrow', sans-serif;
+  line-height: 0.78;
+}
+.home-stage .counter-n { font-size: 118px; font-weight: 400; letter-spacing: -0.01em; color: #fff; }
+.home-stage .counter-total { font-size: 52px; font-weight: 400; color: rgba(160, 150, 235, 0.75); margin-left: 4px; }
+
+.home-stage .status { position: absolute; right: 34px; top: 44px; width: 340px; text-align: right; }
+.home-stage .status-title {
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.055em;
+  color: #fff;
+  text-transform: uppercase;
+}
+.home-stage .status-tag { font-size: 13px; font-weight: 300; color: rgba(233, 233, 246, 0.72); margin-top: 7px; line-height: 1.35; }
+.home-stage .status-hatch {
+  height: 11px;
+  margin-top: 14px;
+  margin-left: 96px;
+  background-image: repeating-linear-gradient(112deg, rgba(211, 216, 255, 0.42) 0 1px, transparent 1px 5px);
+}
+.home-stage .status-rule { height: 1px; margin-top: 9px; background: linear-gradient(90deg, rgba(199, 206, 255, 0), rgba(199, 206, 255, 0.45)); }
+
+.home-stage .chips {
+  position: absolute;
+  right: 34px;
+  top: 172px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+.home-stage .chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px 9px 11px;
+  min-width: 196px;
+  justify-content: space-between;
+  background: rgba(126, 132, 178, 0.16);
+  border: 1px solid rgba(199, 206, 255, 0.1);
+}
+.home-stage .chip-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(219, 224, 255, 0.55); flex: none; }
+.home-stage .chip-text {
+  font-family: 'Space Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: #f1f1fb;
+  white-space: nowrap;
+}
+
+.home-stage .l1 {
+  position: absolute;
+  left: calc(50% + 64px);
+  top: -6px;
+  width: 104px;
+  height: 104px;
+  border: 1px solid rgba(199, 206, 255, 0.2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.home-stage .l1-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, #c99a6a, #5a3d28 70%, #241a14);
+  box-shadow: 0 0 18px rgba(201, 154, 106, 0.35);
+}
+.home-stage .l1-line {
+  position: absolute;
+  left: 103px;
+  top: 52px;
+  width: 132px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(199, 206, 255, 0.32), rgba(199, 206, 255, 0));
+}
+.home-stage .l1-label {
+  position: absolute;
+  left: 110px;
+  top: 34px;
+  font-family: 'Space Mono', monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  color: rgba(233, 233, 246, 0.5);
+  white-space: nowrap;
+}
+
+/* ---------- prev / next ---------- */
+.home-stage .pager {
+  position: absolute;
+  left: 34px;
+  right: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: auto;
+}
+.home-stage .pager button {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+.home-stage .pager button:focus-visible { outline: 1px solid #f3ab5c; outline-offset: 6px; }
+.home-stage .pager-name {
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: rgba(233, 233, 246, 0.9);
+  white-space: nowrap;
+}
+.home-stage .pager-hatch {
+  width: 96px;
+  height: 12px;
+  margin: 0 14px;
+  background-image: repeating-linear-gradient(112deg, rgba(211, 216, 255, 0.5) 0 1px, transparent 1px 5px);
+}
+.home-stage .pager-arrow {
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 30px;
+  font-weight: 400;
+  color: #f3ab5c;
+  letter-spacing: -0.08em;
+  line-height: 1;
+}
+.home-stage .pager-tail-l { width: 66px; height: 1px; margin-left: 16px; background: linear-gradient(90deg, rgba(199, 206, 255, 0.4), rgba(199, 206, 255, 0)); }
+.home-stage .pager-tail-r { width: 66px; height: 1px; margin-right: 16px; background: linear-gradient(90deg, rgba(199, 206, 255, 0), rgba(199, 206, 255, 0.4)); }
+
+/* ---------- title + blurb ---------- */
+.home-stage .title { position: absolute; left: -1px; bottom: 34px; width: min(48%, 560px); }
+.home-stage .title-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 82px;
+  background: linear-gradient(90deg, rgba(122, 128, 176, 0.3), rgba(122, 128, 176, 0.14) 68%, rgba(122, 128, 176, 0));
+  border-top: 1px solid rgba(199, 206, 255, 0.12);
+  border-bottom: 1px solid rgba(199, 206, 255, 0.12);
+}
+.home-stage .title-name {
+  margin: 0;
+  padding-left: 56px;
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 74px;
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 2px 30px rgba(10, 8, 30, 0.6);
+}
+.home-stage .title-hatch {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 88px;
+  background-image: repeating-linear-gradient(112deg, rgba(219, 224, 255, 0.42) 0 1px, transparent 1px 5px);
+}
+.home-stage .title-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-left: 56px;
+  margin-top: 15px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: rgba(233, 233, 246, 0.62);
+  white-space: nowrap;
+}
+.home-stage .title-meta-rule {
+  width: 120px;
+  flex: none;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, rgba(199, 206, 255, 0.55) 0 5px, transparent 5px 9px);
+}
+.home-stage .title-source { color: #fff; }
+
+.home-stage .blurb { position: absolute; right: 34px; bottom: 104px; width: 326px; }
+.home-stage .blurb-card {
+  padding: 16px 18px;
+  background: linear-gradient(270deg, rgba(122, 128, 176, 0.26), rgba(122, 128, 176, 0.1));
+  border: 1px solid rgba(199, 206, 255, 0.12);
+  text-align: right;
+  font-size: 12.5px;
+  line-height: 1.62;
+  font-weight: 300;
+  color: rgba(240, 240, 250, 0.9);
+}
+.home-stage .blurb-card strong { font-weight: 400; color: #fff; }
+.home-stage .blurb-hatch {
+  height: 11px;
+  margin-top: 12px;
+  margin-right: 34px;
+  background-image: repeating-linear-gradient(112deg, rgba(211, 216, 255, 0.3) 0 1px, transparent 1px 5px);
+}
+
+.home-stage .scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 20px;
+  color: rgba(233, 233, 246, 0.45);
+}
+
+/* ---------- footer ---------- */
+.home-stage .footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 34px 20px;
+  pointer-events: auto;
+}
+.home-stage .footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: rgba(233, 233, 246, 0.42);
+  white-space: nowrap;
+}
+.home-stage .footer-left .sep { color: rgba(233, 233, 246, 0.25); }
+.home-stage .footer-right { text-align: right; width: 420px; }
+.home-stage .footer-hatch {
+  height: 9px;
+  margin-bottom: 8px;
+  margin-left: auto;
+  width: 180px;
+  background-image: repeating-linear-gradient(112deg, rgba(211, 216, 255, 0.24) 0 1px, transparent 1px 5px);
+}
+.home-stage .footer-caption {
+  font-family: 'Chivo', sans-serif;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: rgba(233, 233, 246, 0.72);
+}
+
+/* ---------- storm HUD ---------- */
+.home-stage .storm {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 20px;
+  background: rgba(14, 14, 28, 0.86);
+  border: 1px solid rgba(199, 206, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+}
+.home-stage .storm-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: rgba(233, 233, 246, 0.6);
+}
+.home-stage .storm-segs { display: flex; gap: 3px; }
+.home-stage .storm-seg {
+  width: 30px;
+  height: 5px;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  background: rgba(199, 206, 255, 0.16);
+}
+.home-stage .storm-seg.on { background: #f3ab5c; }
+.home-stage .storm-seg:focus-visible { outline: 1px solid #f3ab5c; outline-offset: 3px; }
+.home-stage .storm-g {
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 19px;
+  font-weight: 600;
+  color: #fff;
+  min-width: 64px;
+  text-align: right;
+}
+.home-stage .storm-kp {
+  font-family: 'Space Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: rgba(233, 233, 246, 0.55);
+}
+
+/* Below the artboard's 900px height the pager (pinned to 50%) closes on the
+   blurb card; drop the card toward the footer to keep them clear.
+   ponytail: one breakpoint, not a layout engine — under ~620px tall they touch
+   again, fix by making .body a grid if that ever matters. */
+@media (max-height: 880px) {
+  .home-stage .blurb { bottom: 44px; }
+  .home-stage .blurb-card { font-size: 12px; line-height: 1.55; }
+}
+
+/* ---------- industry transition ---------- */
+@keyframes helioSwapIn {
+  from { opacity: 0; transform: translate3d(calc(var(--dir, 1) * 30px), 0, 0); filter: blur(6px); }
+  55% { filter: blur(0); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes helioCharIn {
+  from { opacity: 0; transform: translate3d(calc(var(--dir, 1) * 16px), 0.44em, 0) rotateX(-80deg); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes helioWipe {
+  0% { transform: scaleX(0); transform-origin: left center; }
+  46% { transform: scaleX(1); transform-origin: left center; }
+  54% { transform: scaleX(1); transform-origin: right center; }
+  100% { transform: scaleX(0); transform-origin: right center; }
+}
+
+.home-stage .swap {
+  animation: helioSwapIn 0.55s cubic-bezier(0.22, 0.72, 0.24, 1) backwards;
+  animation-delay: var(--d, 0ms);
+}
+.home-stage .counter-n.swap { --d: 60ms; }
+.home-stage .status.swap { --d: 0ms; }
+.home-stage .chip.swap { --d: calc(130ms + var(--n) * 70ms); }
+.home-stage .blurb.swap { --d: 250ms; }
+.home-stage .title-source.swap { --d: 330ms; }
+.home-stage .pager-name.swap { --d: 40ms; }
+
+.home-stage .title-name { position: relative; perspective: 700px; }
+.home-stage .title-char {
+  display: inline-block;
+  white-space: pre;
+  transform-origin: 50% 100%;
+  animation: helioCharIn 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+  animation-delay: calc(90ms + var(--n) * 34ms);
+}
+.home-stage .title-wipe {
+  position: absolute;
+  left: 56px;
+  right: 0;
+  top: 6%;
+  bottom: 6%;
+  background: linear-gradient(90deg, rgba(243, 171, 92, 0), rgba(243, 171, 92, 0.42), rgba(243, 171, 92, 0));
+  animation: helioWipe 0.72s cubic-bezier(0.5, 0, 0.3, 1) forwards;
+  pointer-events: none;
+}
+
+.home-stage .pager-arrow { display: inline-block; transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.3, 1), color 0.25s; }
+.home-stage .pager button:hover .pager-arrow { color: #ffc98a; }
+.home-stage .pager button:first-child:hover .pager-arrow { transform: translateX(-6px); }
+.home-stage .pager button:last-child:hover .pager-arrow { transform: translateX(6px); }
+.home-stage .pager button:first-child:active .pager-arrow { transform: translateX(-11px); }
+.home-stage .pager button:last-child:active .pager-arrow { transform: translateX(11px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .home-stage .swap,
+  .home-stage .title-char,
+  .home-stage .title-wipe { animation: none; }
+  .home-stage .title-wipe { display: none; }
+  .home-stage .pager-arrow { transition: none; }
+}
+
+/* ---------- short viewports ----------
+   The artboard was 1440x900. Below ~860px tall the right-hand column
+   (status → chips → blurb) fills the panel edge to edge and the centred pager
+   has nowhere to thread between them, so the blocks collide. Tighten the HUD
+   and drop the pager into the gap that opens up rather than letting it land on
+   the chips. Above 860px the artboard values are untouched. */
+@media (max-height: 860px) {
+  .home-stage .counter-n { font-size: 92px; }
+  .home-stage .counter-total { font-size: 42px; }
+
+  .home-stage .status-tag { margin-top: 5px; }
+  .home-stage .status-hatch { margin-top: 10px; }
+  .home-stage .status-rule { margin-top: 7px; }
+
+  /* Pinned under the status block instead of a fixed 172px from the top. */
+  .home-stage .chips { top: 156px; gap: 6px; }
+  .home-stage .chip { padding: 7px 12px 7px 9px; }
+
+  .home-stage .pager { top: 58%; }
+
+  /* Wider card wraps to fewer lines, which is where the height is won. */
+  .home-stage .blurb { width: 380px; bottom: 30px; }
+  .home-stage .blurb-card { line-height: 1.5; padding: 13px 15px; }
+  .home-stage .blurb-hatch { margin-top: 9px; }
+
+  .home-stage .title { bottom: 26px; }
+  .home-stage .title-bar { height: 66px; }
+  .home-stage .title-name { font-size: 58px; }
+  .home-stage .title-meta { margin-top: 11px; }
+}

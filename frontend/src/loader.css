@@ -1,0 +1,197 @@
+/* Boot sequence — the globe flies up from below the fold, then the rest of the
+   page fades in over it. Timeline (must stay in sync with BOOT_MS in main.jsx):
+
+     0.15 – 2.15   globe rises 100vh → centre, scaling up
+     0.50 – 1.60   the black veil clears, so it rises into view
+     0.25 – 3.10   four beats of the problem statement, 0.95s apart
+     3.25 – 4.25   everything except the globe fades in
+     3.55 – 4.05   loader fades out; React unmounts it at 4.05 */
+
+.loader {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  font-family: 'Space Mono', monospace;
+  background: radial-gradient(130% 85% at 50% 118%, rgba(243, 171, 92, 0.17), rgba(7, 6, 15, 0) 48%);
+  animation: helioLoaderOut 0.5s ease 3.55s forwards;
+}
+
+/* Solid black to start, so nothing shows until the globe is on its way up. */
+.loader-veil {
+  position: absolute;
+  inset: 0;
+  background: #07060f;
+  animation: helioLoaderOut 1.1s ease 0.5s forwards;
+}
+
+/* The CME leaving the sun: a flare from below that blows past the globe. */
+.loader-flare {
+  position: absolute;
+  left: 50%;
+  bottom: -32vh;
+  width: 130vw;
+  height: 78vh;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(243, 171, 92, 0.55), rgba(160, 150, 235, 0.16) 42%, rgba(243, 171, 92, 0) 72%);
+  animation: helioFlare 2.7s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+/* Draws the travel itself: a hairline that climbs 100vh → 50vh with the globe. */
+.loader-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(243, 171, 92, 0), rgba(243, 171, 92, 0.8), rgba(243, 171, 92, 0));
+  animation: helioScan 2s cubic-bezier(0.16, 0.84, 0.24, 1) 0.15s forwards;
+}
+
+/* The tag, the bar and the skip hint sit exactly where the navbar, the panel's
+   bottom border and the footer caption land. They have to be gone before the
+   page fades in at 3.25s, or they print on top of it for the whole handoff —
+   hence the second animation in each list, which wins once its delay is up. */
+.loader-tag {
+  position: absolute;
+  left: 56px;
+  top: 52px;
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  color: rgba(233, 233, 246, 0.5);
+  animation: helioLoaderIn 0.7s ease 0.15s backwards, helioLoaderOut 0.4s ease 2.85s forwards;
+}
+.loader-tag span { color: #f3ab5c; margin: 0 4px; }
+
+.loader-beats {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 62%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 0 40px;
+}
+/* Stacked in one grid cell so each beat replaces the last in place. `both`, not
+   `backwards`: backwards alone reverts to the base style once the animation
+   ends, which is opacity 1 — every finished beat would pop back on and all four
+   would end up stacked on top of each other. */
+.loader-beat {
+  grid-area: 1 / 1;
+  animation: helioBeat 0.95s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  animation-delay: calc(0.25s + var(--i) * 0.95s);
+}
+.loader-beat.is-final {
+  animation: helioWordmark 0.95s cubic-bezier(0.16, 0.84, 0.24, 1) both;
+  animation-delay: calc(0.25s + var(--i) * 0.95s);
+}
+
+.loader-line {
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: #fff;
+  text-shadow: 0 2px 34px rgba(10, 8, 30, 0.8);
+}
+.is-final .loader-line {
+  font-size: 62px;
+  font-weight: 700;
+}
+.loader-sub {
+  margin-top: 12px;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  color: rgba(233, 233, 246, 0.58);
+}
+.is-final .loader-sub { color: #f3ab5c; }
+
+.loader-bar {
+  position: absolute;
+  left: 56px;
+  right: 56px;
+  bottom: 52px;
+  height: 1px;
+  background: rgba(199, 206, 255, 0.14);
+  animation: helioLoaderOut 0.4s ease 2.85s forwards;
+}
+.loader-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(160, 150, 235, 0.8), #f3ab5c);
+  animation: helioBar 3.05s linear forwards;
+}
+
+.loader-skip {
+  position: absolute;
+  right: 56px;
+  bottom: 68px;
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
+  color: rgba(233, 233, 246, 0.34);
+  animation: helioLoaderIn 0.7s ease 1.4s backwards, helioLoaderOut 0.4s ease 2.85s forwards;
+}
+
+/* ---------- the page underneath ---------- */
+
+/* The globe is the only thing on screen while the beats play; everything else
+   in .frame / .page waits for it to land. :not() so new siblings are covered. */
+.is-booting .globe-layer,
+.is-booting .page-globe {
+  animation: helioGlobeRise 2s cubic-bezier(0.16, 0.84, 0.24, 1) 0.15s backwards;
+}
+.is-booting .frame > *:not(.globe-layer),
+.is-booting .page > *:not(.page-globe),
+.is-booting .navbar {
+  animation: helioLoaderIn 1s ease 3.25s backwards;
+}
+
+@keyframes helioGlobeRise {
+  from { opacity: 0; transform: translate3d(0, 100vh, 0) scale(0.4); }
+  35% { opacity: 1; }
+  to { opacity: 1; transform: none; }
+}
+@keyframes helioScan {
+  from { top: 100%; opacity: 0; }
+  20% { opacity: 1; }
+  to { top: 50%; opacity: 0; }
+}
+@keyframes helioFlare {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.28); }
+  16% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) scale(1.55); }
+}
+@keyframes helioBeat {
+  0% { opacity: 0; transform: translateY(16px); filter: blur(9px); }
+  24% { opacity: 1; transform: none; filter: blur(0); }
+  74% { opacity: 1; transform: none; filter: blur(0); }
+  100% { opacity: 0; transform: translateY(-16px); filter: blur(9px); }
+}
+@keyframes helioWordmark {
+  from { opacity: 0; transform: scale(0.94); letter-spacing: 0.5em; filter: blur(12px); }
+  to { opacity: 1; transform: none; letter-spacing: 0.16em; filter: blur(0); }
+}
+@keyframes helioBar {
+  from { width: 0; }
+  to { width: 100%; }
+}
+@keyframes helioLoaderIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes helioLoaderOut {
+  to { opacity: 0; }
+}
+
+/* main.jsx skips the boot entirely under reduced motion, so this only guards
+   against the loader being forced on some other way. */
+@media (prefers-reduced-motion: reduce) {
+  .loader,
+  .loader * ,
+  .is-booting .globe-layer,
+  .is-booting .page-globe,
+  .is-booting .frame > *:not(.globe-layer),
+  .is-booting .page > *:not(.page-globe),
+  .is-booting .navbar {
+    animation: none;
+  }
+}

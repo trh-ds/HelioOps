@@ -1,0 +1,215 @@
+/* Advisory console.
+   Palette and type follow shell.css so this sits inside the existing frame.
+   Intentionally utilitarian — the UI is expected to be redesigned; what matters
+   here is that every field the backend produces is visible. */
+
+.dash {
+  padding: calc(var(--nav-bottom) + 26px) 56px 90px;
+  color: #e9e9f6;
+  font-family: 'Chivo', system-ui, sans-serif;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.dash-head h1 {
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 34px;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+.dash-sub { font-size: 13px; margin-top: 4px; }
+.muted { color: rgba(233, 233, 246, 0.6); }
+.small { font-size: 12px; }
+
+/* ---------- controls ---------- */
+
+.dash-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 26px 0 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(199, 206, 255, 0.13);
+}
+.ctl { display: flex; flex-direction: column; gap: 6px; }
+.ctl .col-head { margin-bottom: 0; }
+
+.dash select {
+  background: rgba(7, 6, 15, 0.9);
+  color: #e9e9f6;
+  border: 1px solid rgba(199, 206, 255, 0.22);
+  padding: 8px 12px;
+  font-family: 'Space Mono', monospace;
+  font-size: 13px;
+  min-width: 170px;
+}
+
+.btn {
+  background: transparent;
+  color: #e9e9f6;
+  border: 1px solid rgba(199, 206, 255, 0.3);
+  padding: 9px 18px;
+  font-family: 'Space Mono', monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.btn:hover:not(:disabled) { background: rgba(199, 206, 255, 0.09); }
+.btn:disabled { opacity: 0.42; cursor: not-allowed; }
+.btn-primary { border-color: rgba(140, 180, 255, 0.6); }
+
+.health { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+
+/* ---------- pills / banners ---------- */
+
+.pill {
+  display: inline-block;
+  font-family: 'Space Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.pill-ok   { color: #8ff0c0; border-color: rgba(143, 240, 192, 0.42); }
+.pill-warn { color: #ffd489; border-color: rgba(255, 212, 137, 0.42); }
+.pill-bad  { color: #ff9a9a; border-color: rgba(255, 154, 154, 0.46); }
+.pill-info { color: rgba(233, 233, 246, 0.66); border-color: rgba(199, 206, 255, 0.24); }
+
+.banner {
+  padding: 11px 15px;
+  font-size: 13px;
+  margin: 14px 0;
+  border-left: 2px solid;
+}
+.banner-bad  { background: rgba(255, 90, 90, 0.09); border-color: #ff9a9a; }
+.banner-warn { background: rgba(255, 200, 90, 0.08); border-color: #ffd489; }
+
+/* ---------- layout ---------- */
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(420px, 1.15fr);
+  gap: 30px;
+  margin-top: 24px;
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .dash { padding-left: 22px; padding-right: 22px; }
+  .dash-grid { grid-template-columns: 1fr; }
+}
+.dash-col { min-width: 0; }
+
+/* ---------- stream ---------- */
+
+.streamlog {
+  border: 1px solid rgba(199, 206, 255, 0.13);
+  background: rgba(7, 6, 15, 0.62);
+  max-height: 560px;
+  overflow-y: auto;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.streamline {
+  display: grid;
+  grid-template-columns: 84px 118px 1fr;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(199, 206, 255, 0.06);
+}
+.streamline-tag { color: rgba(160, 190, 255, 0.9); text-transform: uppercase; }
+.streamline-step { color: rgba(233, 233, 246, 0.55); }
+.streamline-msg { color: rgba(233, 233, 246, 0.85); word-break: break-word; }
+.streamline.tone-ok .streamline-msg   { color: #8ff0c0; }
+.streamline.tone-warn .streamline-msg { color: #ffd489; }
+.streamline.tone-bad  .streamline-msg { color: #ff9a9a; }
+.streamline.tone-bad  .streamline-tag { color: #ff9a9a; }
+
+/* ---------- advisory ---------- */
+
+.adv {
+  border: 1px solid rgba(199, 206, 255, 0.15);
+  background: rgba(7, 6, 15, 0.6);
+  margin-bottom: 16px;
+}
+.adv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(199, 206, 255, 0.1);
+}
+.adv-title { display: flex; align-items: center; gap: 11px; }
+.adv-industry {
+  font-family: 'Archivo Narrow', sans-serif;
+  font-size: 19px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.adv-meta { display: flex; align-items: center; gap: 10px; }
+.chev { font-family: 'Space Mono', monospace; color: rgba(233, 233, 246, 0.5); }
+
+.confbar {
+  width: 110px;
+  height: 4px;
+  background: rgba(199, 206, 255, 0.14);
+}
+.confbar-fill { height: 100%; transition: width 0.3s ease; }
+.confbar-fill.is-ok   { background: #8ff0c0; }
+.confbar-fill.is-warn { background: #ffd489; }
+.confbar-fill.is-bad  { background: #ff9a9a; }
+
+.adv-body { padding: 15px 16px 18px; }
+.adv-summary { font-size: 14px; line-height: 1.6; margin: 0 0 13px; }
+.adv-flags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 15px; }
+
+.adv-actions { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 13px; }
+.adv-actions li { font-size: 13.5px; line-height: 1.55; }
+.act-text { font-weight: 400; }
+.act-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.act-when { color: rgba(160, 190, 255, 0.85); }
+.act-cite { color: rgba(143, 240, 192, 0.8); }
+.act-why { margin-top: 3px; }
+
+.verifier-box {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 212, 137, 0.3);
+  background: rgba(255, 200, 90, 0.05);
+}
+.verifier-box .col-head { margin-bottom: 9px; }
+.vcheck { font-size: 12.5px; margin-bottom: 8px; }
+.vcheck code {
+  font-family: 'Space Mono', monospace;
+  color: rgba(160, 190, 255, 0.95);
+}
+
+.gen-errors { margin-top: 13px; }
+.gen-errors ul { margin: 7px 0 0; padding-left: 18px; }
+.adv-sources { margin-top: 14px; font-family: 'Space Mono', monospace; }
+
+.rawjson {
+  border: 1px solid rgba(199, 206, 255, 0.13);
+  background: rgba(7, 6, 15, 0.62);
+  padding: 13px;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  overflow-x: auto;
+  color: rgba(233, 233, 246, 0.8);
+  max-height: 300px;
+}

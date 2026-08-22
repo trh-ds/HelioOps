@@ -1,0 +1,132 @@
+html {
+  /* Home fills the viewport and never scrolls; the content pages do. Without a
+     reserved gutter the scrollbar appears on navigation and shoves the navbar
+     ~15px left. */
+  scrollbar-gutter: stable;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #07060f;
+  color: #e9e9f6;
+  -webkit-font-smoothing: antialiased;
+}
+* {
+  box-sizing: border-box;
+}
+a {
+  color: #e9e9f6;
+  text-decoration: none;
+}
+a:hover {
+  color: #f3ab5c;
+}
+::selection {
+  background: rgba(243, 171, 92, 0.3);
+}
+
+/* ---------- shared navbar ----------
+   Rendered once at the app root, OUTSIDE .page-swap, so the page can fade out
+   and in underneath it without the bar flickering or moving. Every page lays
+   its content out below --nav-bottom. */
+:root {
+  --nav-h: 51px;
+  --nav-top: 52px;
+  --nav-inset: 56px;
+  /* +2px for the strip's own top and bottom border */
+  --nav-bottom: calc(var(--nav-top) + var(--nav-h) + 2px);
+}
+
+.navbar {
+  position: fixed;
+  top: var(--nav-top);
+  left: var(--nav-inset);
+  right: var(--nav-inset);
+  z-index: 20;
+  pointer-events: none;
+  /* Same curve and duration both ways, so it comes back exactly as it left. */
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.navbar.is-hidden {
+  opacity: 0;
+  transform: translateY(-14px);
+}
+.navbar.is-hidden .sitenav { pointer-events: none; }
+
+/* A tabbed-to link must not be invisible. */
+.navbar.is-hidden:focus-within {
+  opacity: 1;
+  transform: none;
+}
+.navbar.is-hidden:focus-within .sitenav { pointer-events: auto; }
+.sitenav {
+  height: var(--nav-h);
+  display: flex;
+  align-items: stretch;
+  padding: 0 34px;
+  border: 1px solid rgba(199, 206, 255, 0.13);
+  border-bottom-color: rgba(199, 206, 255, 0.11);
+  pointer-events: auto;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+}
+.sitenav-links {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+}
+.sitenav-links a {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+  color: rgba(233, 233, 246, 0.62);
+  transition: color 0.2s;
+}
+.sitenav-links a:last-child { margin-right: 0; }
+.sitenav-links a.is-active {
+  border-bottom: 1px solid #f3ab5c;
+  color: #fff;
+}
+.sitenav-cta {
+  display: flex;
+  align-items: center;
+  margin-left: 64px;
+  letter-spacing: 0.2em;
+  color: #f3ab5c;
+  white-space: nowrap;
+}
+
+/* ---------- page transition ----------
+   Out then in, rather than a hard cut. Opacity only on the wrapper: a transform
+   or filter here would turn it into a containing block and drag every
+   position:fixed layer (globe, veils) out of place. Inner content may move. */
+@keyframes helioPageIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes helioPageOut {
+  to { opacity: 0; }
+}
+@keyframes helioRise {
+  from { opacity: 0; transform: translate3d(0, 20px, 0); }
+  to { opacity: 1; transform: none; }
+}
+.page-swap { animation: helioPageIn 0.3s ease backwards; }
+.page-swap.is-leaving { animation: helioPageOut 0.2s ease forwards; }
+.page-swap .page-body { animation: helioRise 0.55s cubic-bezier(0.22, 0.72, 0.24, 1) 0.06s backwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page-swap,
+  .page-swap.is-leaving,
+  .page-swap .page-body { animation: none; }
+
+  /* Keep the bar put rather than snapping it in and out with no fade. */
+  .navbar { transition: none; }
+  .navbar.is-hidden {
+    opacity: 1;
+    transform: none;
+  }
+  .navbar.is-hidden .sitenav { pointer-events: auto; }
+}
