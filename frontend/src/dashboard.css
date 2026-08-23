@@ -95,8 +95,9 @@
   display: inline-block;
   flex: none;
 }
-.nav-dot.is-ok  { background: #8ff0c0; }
-.nav-dot.is-bad { background: #ff9a9a; }
+.nav-dot.is-ok   { background: #8ff0c0; }
+.nav-dot.is-bad  { background: #ff9a9a; }
+.nav-dot.is-warn { background: #ffd28a; }
 
 .console-foot {
   padding: 16px 20px 20px;
@@ -392,36 +393,100 @@
 .act-cite-link:hover,
 .act-cite-link:focus-visible { text-decoration: underline; color: rgba(143, 240, 192, 1); }
 
-/* ---- Ask box: scoped per-agent chat inside an advisory card ---- */
+/* ---- Tab row: one section at a time, the rest one click away ---- */
+.tabrow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.tabrow .btn { text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+.tabrow .btn[aria-selected='true'] { background: rgba(140, 180, 255, 0.12); }
+
+/* ---- Ask box: scoped per-agent chat ---- */
 .askbox { margin-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; }
 .askbox > summary { cursor: pointer; }
 .askbox > summary:hover { color: rgba(255, 255, 255, 0.85); }
 
-.ask-turns { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 12px; }
-.ask-turns > li { border-left: 2px solid rgba(143, 240, 192, 0.3); padding-left: 10px; }
-.ask-q { font-size: 13px; color: rgba(255, 255, 255, 0.55); margin-bottom: 4px; }
-.ask-q::before { content: '> '; color: rgba(143, 240, 192, 0.6); }
-.ask-a { font-size: 14px; line-height: 1.5; }
-.ask-sources { margin-top: 5px; }
+/* On the Ask panel it is the page, not a footnote to a card. */
+.askbox.is-standalone {
+  margin-top: 0;
+  padding: 16px;
+  max-width: 74ch;
+  border: 1px solid rgba(199, 206, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
 
-.ask-input { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
+.ask-log { max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; }
+.askbox.is-standalone .ask-log { min-height: 180px; }
+.ask-empty { margin: 6px 0 0; line-height: 1.6; max-width: 60ch; }
+
+.ask-turns { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 14px; }
+.ask-turns > li {
+  border-left: 2px solid rgba(143, 240, 192, 0.3);
+  padding: 2px 0 2px 12px;
+}
+.ask-turns > li.is-pending { border-left-color: rgba(199, 206, 255, 0.28); }
+.ask-q {
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.62);
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+}
+.ask-q::before { content: '> '; color: rgba(143, 240, 192, 0.6); }
+.ask-a { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+
+.ask-sources { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.ask-sources-label { letter-spacing: 0.08em; text-transform: uppercase; font-size: 10.5px; opacity: 0.7; }
+.ask-source {
+  padding: 1px 7px;
+  border: 1px solid rgba(199, 206, 255, 0.18);
+  border-radius: 999px;
+}
+
+/* Three dots, no library and no layout shift: the cell is pre-sized to "...".
+   The static ellipsis is the fallback - animating `content` is not universal,
+   and a browser that ignores the keyframes still shows something. */
+.ask-dots::after {
+  content: '…';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: ask-dots 1.2s steps(4, end) infinite;
+}
+@keyframes ask-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+@media (prefers-reduced-motion: reduce) {
+  .ask-dots::after { animation: none; content: '…'; }
+}
+
+.ask-input {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
 .ask-input textarea {
   flex: 1;
   resize: vertical;
-  min-height: 44px;
-  padding: 8px 10px;
+  min-height: 52px;
+  padding: 10px 12px;
   font: inherit;
   font-size: 13px;
+  line-height: 1.5;
   color: inherit;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
+  border-radius: 8px;
 }
 .ask-input textarea:focus { outline: none; border-color: rgba(143, 240, 192, 0.45); }
 .ask-input textarea:disabled { opacity: 0.5; }
-.ask-error { color: rgba(255, 150, 150, 0.9); margin-top: 6px; }
-.ask-industry { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-.ask-industry .btn { text-transform: uppercase; }
+.ask-send { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.ask-hint { white-space: nowrap; font-size: 10.5px; }
+.ask-error { color: rgba(255, 150, 150, 0.9); margin-top: 8px; }
+
+@media (max-width: 640px) {
+  .ask-input { flex-direction: column; align-items: stretch; }
+  .ask-send { flex-direction: row; align-items: center; justify-content: space-between; }
+}
 
 /* ---------- run control ---------- */
 

@@ -456,6 +456,7 @@ export default function Dashboard() {
   const [error, setError] = useState(null)
   const [panel, setPanel] = useState('run')
   const [askIndustry, setAskIndustry] = useState('aviation')
+  const [advIndustry, setAdvIndustry] = useState('aviation')
   // Pre-flight gate: null | {phase:'loading'|'confirm', runner:'live'|'batch', data?}
   const [gate, setGate] = useState(null)
   const closeRef = useRef(null)
@@ -618,6 +619,10 @@ export default function Dashboard() {
     [verified]
   )
 
+  /* Derived, not an effect: a run can return a different set of industries than
+     the last one, and a stale `advIndustry` would otherwise render nothing. */
+  const activeAdvisory = advisories.find(a => a.industry === advIndustry) ?? advisories[0]
+
   const healthOk = health?.status === 'ready'
 
   const NAV = [
@@ -738,9 +743,32 @@ export default function Dashboard() {
                 a second model.
               </Empty>
             ) : (
-              advisories.map(a => (
-                <AdvisoryCard key={a.advisory_id} advisory={a} verified={verifiedByIndustry[a.industry]} />
-              ))
+              <>
+                {/* One industry at a time. Four stacked cards is four rulebooks
+                    open at once; an operator reads one sector's advisory and
+                    acts on it. The tab keeps the other three one click away. */}
+                <div className="tabrow" role="tablist" aria-label="advisory industry">
+                  {advisories.map(a => (
+                    <button
+                      key={a.industry}
+                      role="tab"
+                      aria-selected={a.industry === activeAdvisory.industry}
+                      className={`btn${a.industry === activeAdvisory.industry ? ' btn-primary' : ''}`}
+                      onClick={() => setAdvIndustry(a.industry)}
+                    >
+                      {a.industry}
+                      <span className={`nav-dot is-${SEVERITY_ORDER[a.severity] >= 4 ? 'bad' : 'warn'}`} />
+                    </button>
+                  ))}
+                </div>
+                {/* Keyed so switching tabs remounts: the card's collapse state
+                    and the AskBox history belong to the agent they came from. */}
+                <AdvisoryCard
+                  key={activeAdvisory.advisory_id}
+                  advisory={activeAdvisory}
+                  verified={verifiedByIndustry[activeAdvisory.industry]}
+                />
+              </>
             ))}
 
           {panel === 'verifier' && <VerifierPanel verified={verified} />}
@@ -755,10 +783,12 @@ export default function Dashboard() {
                 separate model to the pipeline, so asking can never starve a run
                 of its token budget.
               </div>
-              <div className="ask-industry">
+              <div className="tabrow" role="tablist" aria-label="agent">
                 {INDUSTRIES.map(i => (
                   <button
                     key={i}
+                    role="tab"
+                    aria-selected={askIndustry === i}
                     className={`btn${askIndustry === i ? ' btn-primary' : ''}`}
                     onClick={() => setAskIndustry(i)}
                   >
