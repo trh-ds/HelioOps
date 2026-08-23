@@ -1,21 +1,3 @@
----
-title: HelioOps API
-emoji: 🌞
-colorFrom: orange
-colorTo: red
-sdk: gradio
-app_file: app.py
-python_version: "3.12"
-pinned: false
----
-
-<!-- Front matter note: this block IS the Space config, so do not "tidy" it.
-     sdk was `docker` with `app_port: 7860`. Docker Spaces now require a paid
-     plan, so the API is served through the Gradio SDK instead, see app.py.
-     `app_port` is a Docker-only key and does not apply here; a Gradio Space
-     always serves on 7860. `sdk_version` is intentionally omitted so the Space
-     uses its own pinned gradio rather than one this repo guesses wrong. -->
-
 # HelioOps: Space Weather Advisories That Operators Can Act On
 
 **HelioOps turns a solar storm into cited, machine verified instructions for aviation, power grid, maritime and telecom operators.** It watches coronagraph imagery for a coronal mass ejection, predicts the GPS error and HF radio blackout that the storm will cause, writes the action list each industry needs, and checks every number in that list against the published rulebooks before a human ever reads it.
