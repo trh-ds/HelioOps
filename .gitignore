@@ -78,3 +78,6 @@ backend/ml/data/eda_plots/
 backend/data/chroma_db/*
 
 docs/PITCH
+# All reference/history docs live here, local only. Tracked docs are:
+# README.md, AGENTS.md, CLAUDE.md, and */architecture.md per layer.
+docs/

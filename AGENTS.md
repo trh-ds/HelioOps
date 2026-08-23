@@ -1,5 +1,5 @@
 # AGENTS.md — Project Memory (auto-maintained)
-Last updated: 2026-08-22 | Sessions logged: 6
+Last updated: 2026-08-23 | Sessions logged: 7
 
 ## Identity
 HelioOps — space-weather storm pipeline. Detects a CME from coronagraph imagery,
@@ -11,7 +11,9 @@ Three folders, plus `.github/` (GitHub Actions requires it at the repo root).
 ```
 backend/     FastAPI monolith: adapters/ cv/ ml/ genai/ embeddings/ data/ tests/
 deployment/  Dockerfile.backend, Dockerfile.frontend, docker-compose.yml, supabase/
-frontend/    Vite + React 18 SPA (static; three.js globe). Marketing pages only — no API calls yet.
+frontend/    Vite + React 18 SPA (static; three.js globe) — marketing pages + live console.
+docs/        UNTRACKED reference/history. Only README.md, AGENTS.md, CLAUDE.md and one
+             architecture.md per layer are committed docs.
 ```
 
 ## Stack & Commands
@@ -46,8 +48,6 @@ python backend/ml/03_anchor_test.py            # physics gate; exits non-zero on
 - No cached FITS/PNGs in repo (gitignored, too large) — `detect()` falls back to
   `backend/cv/stubs/*.json` until `cache_fits` + `preprocessing` are run.
 - CV layer restructured 2026-08-21 into three stage packages (see Architecture).
-- No cached FITS/PNGs in repo (gitignored, too large) — `detect()` therefore falls
-  back to `ml/stubs/storm_event_*.json` until `cache_fits` + `preprocessing` are run.
 - 2026-08-22: the ML layer is SYNTHETIC-ONLY and the real-data track is DELETED.
   `backend/ml/` is now 4 files + 6 checkpoints (764 KB, was 296 MB): the generator,
   the trainer, the anchor gate, `inference.py`. Retrained and re-verified end to end:
@@ -59,7 +59,8 @@ python backend/ml/03_anchor_test.py            # physics gate; exits non-zero on
   now covers the KB. Not yet pushed to a Space.
 - 2026-08-22: frontend LIVE on Vercel (project `frontend`, alias
   frontend-olive-six-50.vercel.app); custom domain heliops.dpdns.org not yet pointed.
-  Backend not deployed. Runbooks: docs/DEPLOYMENT.md, docs/HOW_TO_DEPLOY_BACKEND.md.
+  Backend not deployed. Runbooks: docs/DEPLOYMENT.md, docs/HOW_TO_DEPLOY_BACKEND.md
+  (both now untracked under docs/ - local reference only).
 - Chroma corpus fully populated: 918 chunks (aviation 242, maritime 214, telecom 195,
   impact_matrix 166, grid 101). Confirmed live through retrieval, not just sqlite.
 - frontend/ is a marketing SPA (hardcoded copy in src/data.js) PLUS a live console:
@@ -134,13 +135,18 @@ tests/test_pipeline.py                 — schema adaptation, full pipeline, WS 
                                          contract, standalone-import guard
 tests/test_option_c.py                 — detector geometry, flare/DONKI math, fuse contract
 tests/test_cv_preprocessing.py         — FITS fixes + batch png/diff layout round-trip
-docs/DEPLOYMENT.md                     — HF Spaces + Vercel runbook, latency budget, failure modes
-docs/HOW_TO_DEPLOY_BACKEND.md          — backend-only HF Spaces procedure: root Dockerfile, secrets, verify, troubleshoot
-docs/preflight/                        — the pre-flight feature story, 13 md files: problem, operator view,
-                                         internals, conflict rules + physics, read-only invariants, the
-                                         v1 bug and its fix, decisions, tests, timeline, open issues, glossary
-docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 9-step detector, coupling
-                                         functions, quantile/CQR methodology, glossary, hostile Qs
+README.md                              — product entry point: pipeline diagram, quickstart, API surface, maturity
+CLAUDE.md                              — agent orientation: read order, non-negotiables, known-false assumptions
+backend/architecture.md                — API surface, 5-stage pipeline, adapters, preflight, health, WS contract
+backend/cv/architecture.md             — 8-step detector, fusion weights, fallback ladder, STORM_CONFIGS
+backend/ml/architecture.md             — 9-feature vector, quantile calibration, anchor gate
+backend/genai/architecture.md          — routing matrix, agent loop, guardrails, verifier rules, LLM transport
+backend/embeddings/architecture.md     — corpus, chunking, collections, Chroma client discipline
+frontend/architecture.md               — console run flow, VITE_API_URL wiring, conventions
+deployment/architecture.md             — which Dockerfile builds where and why each detail is load-bearing
+docs/                                  — UNTRACKED (gitignored). Local-only history/reference: old README,
+                                         context.md, REFACTOR_MAP, TEST_REPORT, deploy runbooks, preflight
+                                         story, Q&A, genai deep dives. May be stale; never cite as truth.
 ```
 
 ## Conventions
@@ -263,6 +269,8 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
   Pinned by `TestStreamEventContract`.
 
 ## Decisions Log
+2026-08-23 - Docs collapsed to four tracked kinds - README.md, AGENTS.md, CLAUDE.md, and one architecture.md per layer - with everything else moved under a gitignored docs/. Thirty-plus markdown files meant an agent had to read the tree to find out which ones were current, and several described the pre-refactor repo. One doc per layer, colocated with the code it describes, goes stale visibly; a docs/ folder of undated essays goes stale invisibly. The history is kept on disk (and in git history) rather than deleted.
+
 2026-08-22 - Preflight verification sweep found the "read-only" guarantee is false and the conflict rules are unreachable in the shipped repo - the feature is architecturally sound and scoped right, but its headline capability cannot be observed by anyone who clones it, and its central invariant is documented wrong. Recorded as gotchas rather than fixed, pending the owner's call.
 
 2026-08-22 — Deleted the real-data ML track outright rather than parking it — it was blocked on labels that no public dataset supplies in the required form (IONEX / GOES XRS+SEP), and a scaffolded pipeline that cannot be trained is indistinguishable in the tree from one that can. 296 MB and ~1,500 lines gone; the design notes survive in git history.
@@ -292,6 +300,7 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
 2026-08-22 — Free Space keeps its *.hf.space hostname — custom domains are Pro-only; the API URL lives in VITE_API_URL, so no user ever types it and a Cloudflare Worker proxy is unnecessary until api.heliops.dpdns.org is actually wanted.
 
 ## Changelog
+2026-08-23 | Collapse the doc set: 4 tracked doc kinds, everything else gitignored under docs/ | README.md (rewrite, HF front matter kept), CLAUDE.md (new), {backend,backend/cv,backend/ml,backend/genai,backend/embeddings,frontend,deployment}/architecture.md (new), .gitignore, docs/** (untracked via git rm --cached) | Diagrams are mermaid and colocated with their layer, so a coding agent orients from 2 files instead of 30. backend/data/*/SOURCES.md stays in place: the ingest scripts name those paths in their "missing sources" error
 2026-08-22 | Fix the pre-flight feature after LLM-council review: make the conflict rules actually reachable, correct the false read-only claim, kill the 9.7s cold click, rebuild the disclosure layer | backend/{preflight,app}.py, backend/tests/test_preflight.py, backend/data/cached/donki/*, .gitignore, frontend/src/{preflight.js,Dashboard.jsx,dashboard.css,data.test.mjs} | Ship the DONKI cache (real 2024, 44 KB) instead of the claim - the rules were correct but unreachable, so the capability existed only in unit tests; l1/xrs stay ignored because committing 8 MB of wrong-epoch data to trigger a warning about wrong-epoch data is circular. Also: never assert an invariant a test does not check - "never writes" was false the day it was written
 2026-08-22 | Rewrite the root README as the judge-facing entry point; bring every other .md into step with the code | README.md, context.md (full rewrite), docs/TECHNICAL_DEEP_DIVE.md, docs/PRODUCT_BRIEF.md, docs/qna.md, docs/CV_ML_QNA.md, docs/DEPLOYMENT.md, REFACTOR_MAP.md, HELIOOPS_TEST_REPORT.md | The docs described the pre-refactor repo: Next.js frontend, k8s/Terraform/ArgoCD/chaos, ML_after_CV/, an abstract ports/ layer, AgentScope over LangGraph, telecom_kb=0, PICP 96.4/94.8, 8-15s latency, CI ending in `|| true`. A judge reading those against this tree finds a repo that overstates itself, which costs more credibility than any single gap. REFACTOR_MAP.md and HELIOOPS_TEST_REPORT.md were marked HISTORICAL rather than rewritten - a change record and a dated snapshot lose their whole value if edited to match today
 2026-08-22 | Pre-flight conflict check + progressive-disclosure run gate | backend/{preflight,middleware,app}.py, backend/tests/{test_preflight,test_api_endpoints}.py, frontend/src/{api.js,Dashboard.jsx,dashboard.css,preflight.js} | Preflight is stat-first read-only (clients fetch+mkdir on miss); conflicts computed with the same parsers the run uses; UI warns but never hard-blocks
@@ -300,11 +309,11 @@ docs/CV_ML_QNA.md                      — judge-facing Q&A for CV + ML layers: 
 2026-08-22 | Judge-facing CV+ML Q&A doc (58 Q, 13 sections, glossary, hostile questions) | docs/CV_ML_QNA.md, AGENTS.md | State shipped-vs-designed explicitly: shipped = 6 LightGBM models on 4,800 synthetic rows; designed = a real-data track blocked on labels (since deleted, see 2026-08-22). Hiding it loses more credibility than admitting it
 2026-08-22 | Backend deploy guide; frontend live on Vercel; correct stale KB counts | docs/HOW_TO_DEPLOY_BACKEND.md, docs/DEPLOYMENT.md, frontend/.gitignore, AGENTS.md | Chroma corpus is fully populated (918 chunks) as of f967611 — the telecom_kb=0 / maritime_kb=2 finding was pre-merge and is void
 2026-08-22 | Deployment plan: HF Spaces backend + Vercel frontend on heliops.dpdns.org | docs/DEPLOYMENT.md, AGENTS.md | HF free CPU (16 GB) hosts the unslimmed torch image as-is; slimming is a cold-start optimisation, not a prerequisite
-2026-08-21 | Collapse to 3 folders; strip 5 deps; fix paths, chroma client, dead self-check, .env loading, docker healthcheck | backend/** (whole tree), deployment/**, frontend/next.config.mjs, .github/workflows/ci.yml, README.md | Reuse over rewrite: kept every algorithm, deleted the scaffolding around them
-2026-08-21 | Wire CV->backend through adapters; fix WS event collision + circular import | backend/{pipeline,app,health,config}.py, backend/adapters/{repository,prediction}_adapter.py, cv/** (lint), tests/test_pipeline.py | Reuse the dead adapters rather than build ports; verified live against uvicorn on all 9 endpoints + WS
-2026-08-21 | Restructure CV layer into 3 stage packages, fix batch/loader layout mismatch | cv/** (8 moves), backend/{pipeline,health}.py, backend/adapters/*, ML_after_CV/inference.py, tests/*, qna.md, requirements-cv.txt, .gitignore | Full import paths over re-export shims; write path and read path unified on png/ + diff/
 
 ## Archived Summary
+2026-08-21 (w/e) - Repo collapsed to backend/ deployment/ frontend/: CV split into three stage
+packages, pipeline wired through the dead adapters instead of direct imports, 5 deps dropped,
+paths/chroma-client/self-check/.env/docker-healthcheck all fixed. Full entries in git history.
 2026-08-21 (w/e) — Real-data ML track built and then abandoned: NASA OMNI2 1996-2025 fetched
 and documented, 38-feature physics builder with train/serve parity check, distributed Optuna
 HPO pods with a two-laptop runbook. Never trainable — OMNI supplies every driver and no label.
